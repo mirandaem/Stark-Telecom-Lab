@@ -1,95 +1,186 @@
-"""Streamlit app for the full CRC + Hamming educational pipeline."""
-from __future__ import annotations
-
-import os
-import sys
+import random
+from typing import List, Dict
 
 import streamlit as st
 
-# Ensure the project root is importable when Streamlit runs from /app.
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
 
-from src.pipeline import run_pipeline
+def validar_bits(bits: str) -> bool:
+    return len(bits) > 0 and all(bit in "01" for bit in bits)
 
 
-st.set_page_config(page_title="Stark Telecom Lab", layout="wide")
+def transmitir_bits(bits: str, prob_error: float = 0.1, semilla: int | None = None) -> tuple[str, int]:
+    """
+    Simula la transmisión de una secuencia binaria.
+    Cada bit puede invertirse con una probabilidad dada.
+    """
+    rng = random.Random(semilla)
+
+    recibido = []
+    errores = 0
+
+    for bit in bits:
+        if rng.random() < prob_error:
+            recibido.append("1" if bit == "0" else "0")
+            errores += 1
+        else:
+            recibido.append(bit)
+
+    return "".join(recibido), errores
+
+
+def calcular_ber(original: str, recibido: str) -> tuple[int, float]:
+    if len(original) != len(recibido):
+        raise ValueError("Las secuencias deben tener la misma longitud.")
+
+    errores = sum(1 for a, b in zip(original, recibido) if a != b)
+    ber = errores / len(original) if original else 0.0
+    return errores, ber
+
+
+def comparar_bits(original: str, recibido: str) -> List[Dict[str, str]]:
+    filas = []
+    for i, (tx, rx) in enumerate(zip(original, recibido), start=1):
+        filas.append(
+            {
+                "Posición": i,
+                "Tx": tx,
+                "Rx": rx,
+                "Estado": "OK" if tx == rx else "ERROR",
+            }
+        )
+    return filas
+
+
+st.set_page_config(page_title="Stark Telecom Lab - Guía 1", layout="wide")
+
 st.title("Stark Telecom Lab")
-st.caption("Simulador educativo del flujo completo: CRC → Hamming → Canal → Receptor")
+st.subheader("Guía 1: Fundamentos de transmisión digital y errores en el canal")
+
+st.markdown(
+    """
+Esta interfaz permite simular una transmisión binaria básica, introducir errores en el canal
+y medir el desempeño mediante la tasa de error de bit (BER).
+
+Modelo conceptual:
+- Transmisor: genera la secuencia binaria
+- Canal: introduce errores con una probabilidad definida
+- Receptor: compara la secuencia recibida con la original
+"""
+)
 
 with st.sidebar:
-    st.header("Configuración")
-    input_bits = st.text_input("Bits de entrada", value="1011")
-    generator = st.text_input("Polinomio CRC", value="1011")
-    channel_type = st.selectbox(
-        "Canal",
-        options=["ideal", "manual", "bsc", "awgn"],
-        format_func=lambda x: {
-            "ideal": "Ideal (sin errores)",
-            "manual": "Error manual",
-            "bsc": "BSC (probabilidad de bit)",
-            "awgn": "AWGN educativo (BPSK + decisión dura)",
-        }[x],
+    st.header("Parámetros de simulación")
+
+    mensaje = st.text_input(
+        "Secuencia binaria transmitida",
+        value="1011001",
+        help="Ingrese únicamente ceros y unos.",
+    ).strip()
+
+    prob_error = st.slider(
+        "Probabilidad de error del canal",
+        min_value=0.0,
+        max_value=0.5,
+        value=0.1,
+        step=0.01,
+        help="Probabilidad de que un bit cambie durante la transmisión.",
     )
 
-    manual_error_position = None
-    bsc_p = 0.0
-    awgn_sigma = 0.2
+    usar_semilla = st.checkbox("Usar semilla fija", value=True)
 
-    if channel_type == "manual":
-        manual_error_position = st.number_input(
-            "Posición del error sobre la trama transmitida", min_value=1, value=3, step=1
-        )
-    elif channel_type == "bsc":
-        bsc_p = st.slider("Probabilidad de error", min_value=0.0, max_value=1.0, value=0.1, step=0.01)
-    elif channel_type == "awgn":
-        awgn_sigma = st.slider("Sigma del ruido", min_value=0.0, max_value=2.0, value=0.2, step=0.05)
-
-    seed = st.number_input("Semilla aleatoria", min_value=0, value=7, step=1)
-    run = st.button("Ejecutar simulación", type="primary")
-
-if run:
-    try:
-        result = run_pipeline(
-            input_bits,
-            generator=generator,
-            channel_type=channel_type,
-            manual_error_position=int(manual_error_position) if manual_error_position else None,
-            bsc_p=bsc_p,
-            awgn_sigma=awgn_sigma,
-            seed=int(seed),
+    semilla = None
+    if usar_semilla:
+        semilla = st.number_input(
+            "Semilla",
+            min_value=0,
+            max_value=999999,
+            value=42,
+            step=1,
+            help="Permite repetir exactamente el mismo experimento.",
         )
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Transmisor")
-            st.write(f"**Mensaje original:** `{result.original_bits}`")
-            st.write(f"**CRC añadido:** `{result.crc_codeword}`")
-            st.write(f"**Bits de relleno:** `{result.padding_bits}`")
-            st.write(f"**Secuencia para Hamming:** `{result.padded_crc_bits}`")
-            st.write(f"**Bloques Hamming TX:** {result.hamming_blocks_tx}")
-            st.write(f"**Trama transmitida:** `{result.transmitted_frame}`")
+    ejecutar = st.button("Ejecutar simulación", use_container_width=True)
 
-        with col2:
-            st.subheader("Canal y receptor")
-            st.write(f"**Trama recibida:** `{result.received_frame}`")
-            st.write(f"**Síndromes:** {result.syndromes}")
-            st.write(f"**Bloques corregidos:** {result.corrected_blocks}")
-            st.write(f"**Bits decodificados (con padding):** `{result.decoded_padded_bits}`")
-            st.write(f"**Bits decodificados (sin padding):** `{result.decoded_crc_bits}`")
-            st.write(f"**CRC válido:** `{result.crc_valid}`")
-            st.write(f"**Mensaje recuperado:** `{result.recovered_bits}`")
+if not validar_bits(mensaje):
+    st.error("La secuencia ingresada no es válida. Use únicamente caracteres 0 y 1.")
+    st.stop()
 
-        st.subheader("Métricas")
-        m1, m2 = st.columns(2)
-        m1.metric("BER del canal", f"{result.ber_channel:.4f}")
-        m2.metric("BER extremo a extremo", f"{result.ber_end_to_end:.4f}")
+col1, col2 = st.columns(2)
 
-        with st.expander("Ver resultado completo"):
-            st.json(result.to_dict())
+with col1:
+    st.markdown("### Información de entrada")
+    st.write(f"**Mensaje transmitido:** `{mensaje}`")
+    st.write(f"**Longitud:** {len(mensaje)} bits")
+    st.write(f"**Probabilidad de error:** {prob_error:.2f}")
+    if usar_semilla:
+        st.write(f"**Semilla:** {semilla}")
 
-    except ValueError as exc:
-        st.error(str(exc))
+with col2:
+    st.markdown("### Objetivo didáctico")
+    st.info(
+        "Observe cómo cambia la secuencia recibida al variar la probabilidad de error "
+        "y cómo el BER cuantifica el efecto del canal."
+    )
+
+if ejecutar:
+    recibido, errores_canal = transmitir_bits(mensaje, prob_error=prob_error, semilla=semilla)
+    errores, ber = calcular_ber(mensaje, recibido)
+    tabla = comparar_bits(mensaje, recibido)
+
+    st.markdown("---")
+    st.markdown("## Resultados de la simulación")
+
+    r1, r2, r3 = st.columns(3)
+    r1.metric("Bits transmitidos", len(mensaje))
+    r2.metric("Bits erróneos", errores)
+    r3.metric("BER", f"{ber:.4f}")
+
+    st.markdown("### Secuencias")
+    st.code(
+        f"Transmitido: {mensaje}\n"
+        f"Recibido:    {recibido}",
+        language="text",
+    )
+
+    st.markdown("### Comparación bit a bit")
+    st.dataframe(tabla, use_container_width=True, hide_index=True)
+
+    st.markdown("### Interpretación")
+    if errores == 0:
+        st.success(
+            "No se observaron errores en esta transmisión. "
+            "En este caso, el BER es igual a 0."
+        )
+    else:
+        st.warning(
+            f"Se detectaron {errores} errores en la secuencia recibida. "
+            "Esto muestra que el canal puede alterar la información transmitida."
+        )
+
+    st.markdown(
+        f"""
+**Cálculo del BER**
+
+BER = errores / bits transmitidos = **{errores} / {len(mensaje)} = {ber:.4f}**
+"""
+    )
+
+    with st.expander("Preguntas de análisis sugeridas"):
+        st.markdown(
+            """
+1. ¿Qué ocurre con el BER cuando aumenta la probabilidad de error?
+2. ¿Puede el receptor recuperar el mensaje original si solo observa la secuencia recibida?
+3. ¿Por qué esta situación justifica el uso de técnicas de detección y corrección de errores?
+"""
+        )
 else:
-    st.info("Configura los parámetros y pulsa 'Ejecutar simulación'.")
+    st.markdown("---")
+    st.markdown("## Instrucciones")
+    st.markdown(
+        """
+1. Ingrese una secuencia binaria.
+2. Ajuste la probabilidad de error del canal.
+3. Presione **Ejecutar simulación**.
+4. Analice la secuencia recibida y el valor del BER.
+"""
+    )
