@@ -49,5 +49,5 @@ pytest
 3. Agregar métricas BER y visualizaciones.
 4. Integrar simulación BPSK + AWGN con gráficas.
 
-##App disponible en: 
+## App disponible en: 
 https://stark-telecom-lab.streamlit.app/
