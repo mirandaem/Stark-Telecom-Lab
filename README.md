@@ -48,3 +48,6 @@ pytest
 2. Crear notebooks por guía de laboratorio.
 3. Agregar métricas BER y visualizaciones.
 4. Integrar simulación BPSK + AWGN con gráficas.
+
+## App disponible en: 
+https://stark-telecom-lab.streamlit.app/
