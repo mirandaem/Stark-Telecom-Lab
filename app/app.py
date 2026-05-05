@@ -1,6 +1,7 @@
 import streamlit as st
 
 from guides.guia_01_ruido_tiempo import render_guia_01
+from guides.guia_02_ber_snr import render_guia_02
 
 st.set_page_config(
     page_title="Stark Telecom Lab",
