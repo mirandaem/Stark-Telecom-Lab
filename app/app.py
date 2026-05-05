@@ -32,6 +32,8 @@ guia = st.sidebar.radio(
 
 if guia == "Guía 1 - Canal y ruido en el tiempo":
     render_guia_01()
+elif guia == "Guía 2 - BER, SNR y estadísticas":
+    render_guia_02()
 
 else:
     st.title(guia)
