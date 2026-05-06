@@ -2,6 +2,7 @@ import streamlit as st
 
 from guides.guia_01_ruido_tiempo import render_guia_01
 from guides.guia_02_ber_snr import render_guia_02
+from guides.guia_03_hamming_tx import render_guia_03
 
 st.set_page_config(
     page_title="Stark Telecom Lab",
@@ -34,7 +35,8 @@ if guia == "Guía 1 - Canal y ruido en el tiempo":
     render_guia_01()
 elif guia == "Guía 2 - BER, SNR y estadísticas":
     render_guia_02()
-
+elif guia == "Guía 3 - Hamming Tx":
+    render_guia_03()
 else:
     st.title(guia)
     st.info(
