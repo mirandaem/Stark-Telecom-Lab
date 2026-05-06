@@ -5,6 +5,7 @@ from guides.guia_02_ber_snr import render_guia_02
 from guides.guia_03_hamming_tx import render_guia_03
 from guides.guia_04_hamming_rx import render_guia_04
 from guides.guia_05_crc import render_guia_05
+from guides.guia_06_sistema_completo import render_guia_06
 
 st.set_page_config(
     page_title="Stark Telecom Lab",
@@ -43,6 +44,8 @@ elif guia == "Guía 4 - Hamming Rx":
     render_guia_04()
 elif guia == "Guía 5 - CRC":
     render_guia_05()
+elif guia == "Guía 6 - Sistema completo":
+    render_guia_06()
 else:
     st.title(guia)
     st.info(
