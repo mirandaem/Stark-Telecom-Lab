@@ -106,11 +106,15 @@ def dividir_en_tramas(bits: str, tamano_payload: int) -> List[str]:
     Si la última trama queda incompleta, se rellena con ceros.
     """
     tramas = []
+
     for i in range(0, len(bits), tamano_payload):
         bloque = bits[i : i + tamano_payload]
+
         if len(bloque) < tamano_payload:
             bloque = bloque + "0" * (tamano_payload - len(bloque))
+
         tramas.append(bloque)
+
     return tramas
 
 
@@ -119,7 +123,11 @@ def bits_a_simbolos_bpsk(bits: str) -> np.ndarray:
     return np.where(bits_array == 1, 1.0, -1.0)
 
 
-def transmitir_awgn(bits: str, sigma: float, semilla: int | None = None) -> Tuple[str, np.ndarray, np.ndarray, np.ndarray]:
+def transmitir_awgn(
+    bits: str,
+    sigma: float,
+    semilla: int | None = None,
+) -> Tuple[str, np.ndarray, np.ndarray, np.ndarray]:
     """
     Transmite una trama binaria usando BPSK + ruido gaussiano + decisión por umbral.
     """
@@ -139,7 +147,10 @@ def contar_errores_bits(tx: str, rx: str) -> int:
     return sum(1 for a, b in zip(tx, rx) if a != b)
 
 
-def calcular_potencias(simbolos: np.ndarray, ruido: np.ndarray) -> Tuple[float, float, float, float]:
+def calcular_potencias(
+    simbolos: np.ndarray,
+    ruido: np.ndarray,
+) -> Tuple[float, float, float, float]:
     potencia_senal = float(np.mean(simbolos**2))
     potencia_ruido = float(np.mean(ruido**2))
 
@@ -185,6 +196,7 @@ def simular_crc_estadistico(
         semilla_trama = None if semilla is None else semilla + i
 
         residuo_tx, trama_tx, _ = generar_crc(payload, generador)
+
         trama_rx, simbolos, ruido, recibido_analogico = transmitir_awgn(
             trama_tx,
             sigma=sigma,
@@ -271,6 +283,7 @@ def comparar_sigmas_crc(
 
     for i, sigma in enumerate(valores_sigma):
         semilla_escenario = None if semilla is None else semilla + (1000 * i)
+
         _, resumen = simular_crc_estadistico(
             cantidad_bits_datos=cantidad_bits_datos,
             tamano_payload=tamano_payload,
@@ -278,6 +291,7 @@ def comparar_sigmas_crc(
             sigma=sigma,
             semilla=semilla_escenario,
         )
+
         filas.append(resumen)
 
     return pd.DataFrame(filas)
@@ -462,8 +476,8 @@ Si el generador tiene longitud 4, se agregan 3 ceros al mensaje antes de dividir
             st.subheader("Pasos de la división módulo 2")
             st.dataframe(pasos, use_container_width=True, hide_index=True)
 
-            st.session_state["g5_trama_manual"] = trama
-            st.session_state["g5_generador_manual"] = generador
+            st.session_state["g5_trama_manual_resultado"] = trama
+            st.session_state["g5_generador_manual_resultado"] = generador
 
     with tabs[3]:
         st.header("Señal, ruido y verificación CRC")
@@ -518,6 +532,7 @@ El receptor no conoce la trama original. Solo observa los bits decididos despué
 ruido y aplica el CRC. Si el residuo no es cero, detecta error.
 """
             )
+
             st.metric("Varianza del ruido σ²", f"{sigma**2:.4f}")
 
         if not validar_bits(datos_senal):
@@ -526,6 +541,7 @@ ruido y aplica el CRC. Si el residuo no es cero, detecta error.
             st.error("El generador debe ser binario, iniciar en 1 y terminar en 1.")
         elif ejecutar_senal:
             residuo, trama_tx, _ = generar_crc(datos_senal, generador_senal)
+
             trama_rx, simbolos, ruido, recibido_analogico = transmitir_awgn(
                 trama_tx,
                 sigma=sigma,
@@ -663,6 +679,7 @@ Esta simulación permite estimar:
 - SNR promedio.
 """
             )
+
             st.metric("Varianza σ²", f"{sigma_est**2:.4f}")
 
         if not validar_generador(generador_est):
