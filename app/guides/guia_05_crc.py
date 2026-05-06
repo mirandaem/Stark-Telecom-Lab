@@ -87,13 +87,6 @@ def verificar_crc(trama: str, generador: str) -> Tuple[bool, str, pd.DataFrame]:
     return valido, residuo, pasos
 
 
-def invertir_bit(bits: str, posicion: int) -> str:
-    lista = list(bits)
-    indice = posicion - 1
-    lista[indice] = "1" if lista[indice] == "0" else "0"
-    return "".join(lista)
-
-
 def generar_bits_aleatorios(cantidad: int, semilla: int | None = None) -> str:
     rng = np.random.default_rng(semilla)
     bits = rng.integers(0, 2, size=cantidad)
@@ -197,7 +190,7 @@ def simular_crc_estadistico(
 
         residuo_tx, trama_tx, _ = generar_crc(payload, generador)
 
-        trama_rx, simbolos, ruido, recibido_analogico = transmitir_awgn(
+        trama_rx, simbolos, ruido, _ = transmitir_awgn(
             trama_tx,
             sigma=sigma,
             semilla=semilla_trama,
@@ -436,7 +429,7 @@ los datos y el polinomio generador para observar cada paso de la división módu
                 key="g5_generador_manual",
             ).strip()
 
-            ejecutar = st.button("Calcular CRC", use_container_width=True)
+            ejecutar = st.button("Calcular CRC", width="stretch")
 
         with col_info:
             st.info(
@@ -474,7 +467,7 @@ Si el generador tiene longitud 4, se agregan 3 ceros al mensaje antes de dividir
             )
 
             st.subheader("Pasos de la división módulo 2")
-            st.dataframe(pasos, use_container_width=True, hide_index=True)
+            st.dataframe(pasos, width="stretch", hide_index=True)
 
             st.session_state["g5_trama_manual_resultado"] = trama
             st.session_state["g5_generador_manual_resultado"] = generador
@@ -523,7 +516,7 @@ decisión por umbral. Luego se aplica la verificación CRC.
                 key="g5_semilla_senal",
             )
 
-            ejecutar_senal = st.button("Transmitir trama con CRC", use_container_width=True)
+            ejecutar_senal = st.button("Transmitir trama con CRC", width="stretch")
 
         with col_info:
             st.info(
@@ -599,10 +592,10 @@ ruido y aplica el CRC. Si el residuo no es cero, detecta error.
             )
 
             st.subheader("Comparación bit a bit")
-            st.dataframe(tabla_bits, use_container_width=True, hide_index=True)
+            st.dataframe(tabla_bits, width="stretch", hide_index=True)
 
             st.subheader("Verificación CRC en receptor")
-            st.dataframe(pasos_rx, use_container_width=True, hide_index=True)
+            st.dataframe(pasos_rx, width="stretch", hide_index=True)
 
             if errores_bit == 0 and valido:
                 st.success("La trama llegó sin errores y el CRC no detectó inconsistencia.")
@@ -629,8 +622,8 @@ por el CRC.
         with col_param:
             cantidad_bits = st.selectbox(
                 "Cantidad total de bits de datos",
-                [100, 1000, 10000, 50000],
-                index=2,
+                [100, 1000, 5000, 10000],
+                index=3,
                 key="g5_bits_estadistica",
             )
 
@@ -665,7 +658,7 @@ por el CRC.
                 key="g5_semilla_estadistica",
             )
 
-            ejecutar_est = st.button("Ejecutar simulación estadística", use_container_width=True)
+            ejecutar_est = st.button("Ejecutar simulación estadística", width="stretch")
 
         with col_info:
             st.info(
@@ -711,10 +704,10 @@ Esta simulación permite estimar:
             )
 
             st.subheader("Tabla resumen")
-            st.dataframe(pd.DataFrame([resumen]), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame([resumen]), width="stretch", hide_index=True)
 
             st.subheader("Primeras tramas evaluadas")
-            st.dataframe(df_resultados.head(25), use_container_width=True, hide_index=True)
+            st.dataframe(df_resultados.head(25), width="stretch", hide_index=True)
 
             conteo_estados = df_resultados["Estado"].value_counts().reset_index()
             conteo_estados.columns = ["Estado", "Cantidad"]
@@ -723,7 +716,7 @@ Esta simulación permite estimar:
             st.bar_chart(conteo_estados.set_index("Estado"))
 
             st.session_state["g5_resumen_estadistico"] = resumen
-            st.session_state["g5_df_estadistico"] = df_resultados
+            st.session_state["g5_df_estadistico"] = df_resultados.head(25)
 
     with tabs[5]:
         st.header("Comparación de escenarios")
@@ -740,8 +733,8 @@ el BER, el FER, la SNR y la capacidad de detección del CRC.
         with col_param:
             bits_comp = st.selectbox(
                 "Bits de datos por comparación",
-                [1000, 10000, 50000],
-                index=1,
+                [1000, 5000, 10000],
+                index=2,
                 key="g5_bits_comp",
             )
 
@@ -773,7 +766,7 @@ el BER, el FER, la SNR y la capacidad de detección del CRC.
                 key="g5_semilla_comp",
             )
 
-            ejecutar_comp = st.button("Comparar escenarios", use_container_width=True)
+            ejecutar_comp = st.button("Comparar escenarios", width="stretch")
 
         with col_info:
             st.info(
@@ -809,7 +802,7 @@ la potencia del ruido, disminuye la SNR y se espera que aumenten BER y FER.
             )
 
             st.subheader("Tabla comparativa")
-            st.dataframe(df_comp, use_container_width=True, hide_index=True)
+            st.dataframe(df_comp, width="stretch", hide_index=True)
 
             st.subheader("BER del canal vs σ")
             st.line_chart(df_comp[["σ", "BER del canal"]].set_index("σ"))
