@@ -278,7 +278,7 @@ def calcular_potencias(simbolos: np.ndarray, ruido: np.ndarray) -> Tuple[float, 
 
 
 # ============================================================
-# Pipeline completo: CRC -> Hamming -> Canal -> Hamming Rx -> CRC
+# Pipeline completo
 # ============================================================
 
 def ejecutar_pipeline_completo(
@@ -369,7 +369,7 @@ def escenario_sin_proteccion(
     rx, simbolos, ruido, _ = transmitir_awgn(datos, sigma, semilla)
     errores = contar_errores(datos, rx)
     ber = calcular_ber(datos, rx)
-    ps, pn, snr, snr_db = calcular_potencias(simbolos, ruido)
+    _, _, _, snr_db = calcular_potencias(simbolos, ruido)
 
     return {
         "Escenario": "Sin protección",
@@ -388,10 +388,10 @@ def escenario_crc_solo(
     sigma: float,
     semilla: int | None = None,
 ) -> Dict[str, object]:
-    crc_tx, trama_tx, _ = generar_crc(datos, generador)
+    _, trama_tx, _ = generar_crc(datos, generador)
     trama_rx, simbolos, ruido, _ = transmitir_awgn(trama_tx, sigma, semilla)
 
-    valido, residuo, _ = verificar_crc(trama_rx, generador)
+    valido, _, _ = verificar_crc(trama_rx, generador)
 
     crc_len = len(generador) - 1
     datos_rx = trama_rx[:-crc_len] if crc_len > 0 else trama_rx
@@ -399,7 +399,7 @@ def escenario_crc_solo(
     errores = contar_errores(datos, datos_rx)
     ber = calcular_ber(datos, datos_rx)
 
-    ps, pn, snr, snr_db = calcular_potencias(simbolos, ruido)
+    _, _, _, snr_db = calcular_potencias(simbolos, ruido)
 
     return {
         "Escenario": "CRC solo",
@@ -426,7 +426,7 @@ def escenario_hamming_solo(
     errores = contar_errores(datos, datos_rx)
     ber = calcular_ber(datos, datos_rx)
 
-    ps, pn, snr, snr_db = calcular_potencias(simbolos, ruido)
+    _, _, _, snr_db = calcular_potencias(simbolos, ruido)
 
     return {
         "Escenario": "Hamming solo",
@@ -480,16 +480,6 @@ def comparar_escenarios(
     ]
 
     return pd.DataFrame(filas)
-
-
-def simulacion_estadistica_final(
-    cantidad_bits: int,
-    generador: str,
-    sigma: float,
-    semilla: int | None = None,
-) -> pd.DataFrame:
-    datos = generar_bits_aleatorios(cantidad_bits, semilla)
-    return comparar_escenarios(datos, generador, sigma, semilla)
 
 
 def comparar_sigmas_sistema_completo(
@@ -551,7 +541,6 @@ y detección final mediante CRC.
 
     with tabs[0]:
         st.header("Objetivos")
-
         st.markdown(
             """
 **Objetivo general**
@@ -573,7 +562,6 @@ canal con ruido y verificación final mediante métricas estadísticas.
 
     with tabs[1]:
         st.header("Fundamentación teórica")
-
         st.markdown(
             """
 En un sistema digital real, el control de errores no depende de una sola técnica. Es
@@ -622,13 +610,6 @@ y detección.
     with tabs[2]:
         st.header("Flujo completo Hamming + CRC")
 
-        st.markdown(
-            """
-En esta sección se ejecuta el flujo completo para un mensaje binario definido por el
-usuario. La aplicación muestra cada etapa del transmisor, canal y receptor.
-"""
-        )
-
         col_param, col_info = st.columns([1, 1])
 
         with col_param:
@@ -662,7 +643,7 @@ usuario. La aplicación muestra cada etapa del transmisor, canal y receptor.
                 key="g6_semilla_flujo",
             )
 
-            ejecutar = st.button("Ejecutar sistema completo", use_container_width=True)
+            ejecutar = st.button("Ejecutar sistema completo", width="stretch")
 
         with col_info:
             st.info(
@@ -701,26 +682,26 @@ intenta corregir errores de un bit por bloque y CRC valida si quedan errores rem
             st.subheader("Secuencias principales")
 
             st.code(
-                f"Datos originales:            {resumen['Datos originales']}\n"
-                f"CRC Tx:                       {resumen['CRC Tx']}\n"
-                f"Trama con CRC:                {resumen['Trama con CRC']}\n"
-                f"Hamming Tx:                   {resumen['Hamming Tx']}\n"
-                f"Hamming Rx:                   {resumen['Hamming Rx']}\n"
-                f"Hamming corregido:            {resumen['Hamming corregido']}\n"
-                f"Trama recuperada post-Hamming:{resumen['Trama recuperada post-Hamming']}\n"
-                f"Datos recuperados:            {resumen['Datos recuperados']}\n"
-                f"Residuo CRC Rx:               {resumen['Residuo CRC Rx']}",
+                f"Datos originales:             {resumen['Datos originales']}\n"
+                f"CRC Tx:                        {resumen['CRC Tx']}\n"
+                f"Trama con CRC:                 {resumen['Trama con CRC']}\n"
+                f"Hamming Tx:                    {resumen['Hamming Tx']}\n"
+                f"Hamming Rx:                    {resumen['Hamming Rx']}\n"
+                f"Hamming corregido:             {resumen['Hamming corregido']}\n"
+                f"Trama recuperada post-Hamming: {resumen['Trama recuperada post-Hamming']}\n"
+                f"Datos recuperados:             {resumen['Datos recuperados']}\n"
+                f"Residuo CRC Rx:                {resumen['Residuo CRC Rx']}",
                 language="text",
             )
 
             st.subheader("Codificación Hamming en el transmisor")
-            st.dataframe(resultado["tabla_hamming_tx"], use_container_width=True, hide_index=True)
+            st.dataframe(resultado["tabla_hamming_tx"], width="stretch", hide_index=True)
 
             st.subheader("Decodificación Hamming en el receptor")
-            st.dataframe(resultado["tabla_hamming_rx"], use_container_width=True, hide_index=True)
+            st.dataframe(resultado["tabla_hamming_rx"], width="stretch", hide_index=True)
 
             st.subheader("Verificación CRC en el receptor")
-            st.dataframe(resultado["pasos_crc_rx"], use_container_width=True, hide_index=True)
+            st.dataframe(resultado["pasos_crc_rx"], width="stretch", hide_index=True)
 
             if resumen["CRC válido"]:
                 st.success("El CRC acepta la trama recuperada. No se detectan errores remanentes.")
@@ -731,14 +712,6 @@ intenta corregir errores de un bit por bloque y CRC valida si quedan errores rem
 
     with tabs[3]:
         st.header("Señal codificada en el tiempo")
-
-        st.markdown(
-            """
-Esta sección muestra cómo el ruido afecta la trama codificada con Hamming. Esta
-visualización conecta la integración final con las primeras guías sobre señal, ruido
-y decisión por umbral.
-"""
-        )
 
         if "g6_ultimo_resultado" not in st.session_state:
             st.info("Ejecute primero el flujo completo en la pestaña anterior.")
@@ -766,8 +739,6 @@ y decisión por umbral.
             st.subheader("Ruido en el tiempo")
             st.line_chart(df_senal[["Ruido"]])
 
-            st.subheader("Interpretación")
-
             st.markdown(
                 f"""
 - La trama Hamming transmitida tiene {len(resumen["Hamming Tx"])} bits codificados.
@@ -780,27 +751,19 @@ y decisión por umbral.
     with tabs[4]:
         st.header("Comparación de escenarios")
 
-        st.markdown(
-            """
-En esta sección se compara el desempeño del sistema bajo cuatro escenarios:
-
-1. Sin protección.
-2. CRC solo.
-3. Hamming solo.
-4. Hamming + CRC.
-
-Esto permite observar la mejora producida por la corrección y la detección de errores.
-"""
-        )
-
         col_param, col_info = st.columns([1, 1])
 
         with col_param:
             cantidad_bits = st.selectbox(
                 "Cantidad de bits útiles",
-                [100, 1000, 10000, 50000],
-                index=2,
+                [100, 1000, 5000, 10000],
+                index=3,
                 key="g6_bits_comparacion",
+            )
+
+            st.caption(
+                "Para mantener la app estable en la nube, las simulaciones interactivas se limitan a 10,000 bits. "
+                "El análisis puede extenderse a más bits en ejecución local."
             )
 
             generador_comp = st.text_input(
@@ -827,7 +790,7 @@ Esto permite observar la mejora producida por la corrección y la detección de 
                 key="g6_semilla_comp",
             )
 
-            ejecutar_comp = st.button("Comparar escenarios", use_container_width=True)
+            ejecutar_comp = st.button("Comparar escenarios", width="stretch")
 
         with col_info:
             st.info(
@@ -850,7 +813,7 @@ el desempeño cuando se agregan mecanismos de detección y corrección de errore
             )
 
             st.subheader("Tabla comparativa")
-            st.dataframe(df_comp, use_container_width=True, hide_index=True)
+            st.dataframe(df_comp, width="stretch", hide_index=True)
 
             st.subheader("BER final por escenario")
             st.bar_chart(df_comp[["Escenario", "BER final"]].set_index("Escenario"))
@@ -873,22 +836,18 @@ el desempeño cuando se agregan mecanismos de detección y corrección de errore
     with tabs[5]:
         st.header("Estadística final del sistema completo")
 
-        st.markdown(
-            """
-En esta sección se evalúa el sistema Hamming + CRC bajo diferentes niveles de ruido.
-El objetivo es observar cómo varían el BER final, el estado de aceptación/rechazo y el
-comportamiento del sistema al aumentar σ.
-"""
-        )
-
         col_param, col_info = st.columns([1, 1])
 
         with col_param:
             bits_est = st.selectbox(
                 "Cantidad de bits útiles",
-                [1000, 10000, 50000],
-                index=1,
+                [1000, 5000, 10000],
+                index=2,
                 key="g6_bits_est",
+            )
+
+            st.caption(
+                "En Streamlit Cloud se recomienda trabajar hasta 10,000 bits para mantener tiempos de respuesta adecuados."
             )
 
             generador_est = st.text_input(
@@ -912,7 +871,7 @@ comportamiento del sistema al aumentar σ.
                 key="g6_semilla_est",
             )
 
-            ejecutar_est = st.button("Ejecutar estadística final", use_container_width=True)
+            ejecutar_est = st.button("Ejecutar estadística final", width="stretch")
 
         with col_info:
             st.info(
@@ -951,7 +910,7 @@ ruido. Es la evidencia estadística principal de la guía.
             )
 
             st.subheader("Tabla estadística del sistema completo")
-            st.dataframe(df_est, use_container_width=True, hide_index=True)
+            st.dataframe(df_est, width="stretch", hide_index=True)
 
             st.subheader("BER final vs σ")
             st.line_chart(df_est[["σ", "BER final"]].set_index("σ"))
