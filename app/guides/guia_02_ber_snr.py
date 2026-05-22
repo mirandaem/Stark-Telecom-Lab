@@ -68,10 +68,16 @@ def calcular_metricas(
     Calcula potencia promedio de señal, potencia promedio de ruido,
     SNR lineal, SNR dB, Eb/N0 lineal y Eb/N0 dB.
 
-    En este modelo simplificado:
-    - Los símbolos BPSK tienen energía aproximada unitaria.
-    - Por tanto, Eb se aproxima a 1.
-    - Si el ruido es gaussiano de media cero, su potencia se aproxima a sigma^2.
+    Modelo didáctico usado:
+    - BPSK normalizado con símbolos +1 y -1.
+    - Energía por bit aproximada Eb = 1.
+    - Ruido AWGN con varianza sigma^2.
+    - Para AWGN en banda base: sigma^2 = N0/2.
+    - Entonces Eb/N0 = 1 / (2 sigma^2).
+
+    Como en el modelo discreto SNR ≈ 1 / sigma^2:
+    - Eb/N0 ≈ SNR / 2.
+    - Eb/N0 dB ≈ SNR dB - 3.01 dB.
     """
     potencia_senal = float(np.mean(simbolos**2))
     potencia_ruido = float(np.mean(ruido**2))
@@ -85,10 +91,8 @@ def calcular_metricas(
         snr_lineal = potencia_senal / potencia_ruido
         snr_db = 10 * math.log10(snr_lineal)
 
-        # En este modelo didáctico BPSK con amplitud ±1,
-        # Eb se aproxima a la energía promedio por bit.
-        ebn0_lineal = snr_lineal
-        ebn0_db = snr_db
+        ebn0_lineal = snr_lineal / 2
+        ebn0_db = 10 * math.log10(ebn0_lineal)
 
     return potencia_senal, potencia_ruido, snr_lineal, snr_db, ebn0_lineal, ebn0_db
 
@@ -100,10 +104,17 @@ def simular_escenario(
 ) -> dict:
     """
     Ejecuta una simulación completa para un valor de sigma.
+
+    Se usa una semilla base para generar los bits y una semilla derivada
+    para generar el ruido. Esto mantiene reproducibilidad, pero separa
+    las dos fuentes aleatorias.
     """
-    bits_tx = generar_bits_aleatorios(cantidad_bits, semilla)
+    semilla_bits = semilla
+    semilla_ruido = None if semilla is None else semilla + 1
+
+    bits_tx = generar_bits_aleatorios(cantidad_bits, semilla_bits)
     simbolos = bits_a_simbolos_bpsk(bits_tx)
-    ruido, recibido = agregar_ruido_awgn(simbolos, sigma, semilla)
+    ruido, recibido = agregar_ruido_awgn(simbolos, sigma, semilla_ruido)
     bits_rx = decidir_bits_por_umbral(recibido)
 
     errores, ber = calcular_ber(bits_tx, bits_rx)
@@ -129,6 +140,8 @@ def simular_escenario(
         "Eb/N0 dB": ebn0_db,
         "Errores": errores,
         "BER": ber,
+        "Semilla bits": semilla_bits,
+        "Semilla ruido": semilla_ruido,
     }
 
 
@@ -143,7 +156,7 @@ def simular_varios_escenarios(
     resultados = []
 
     for i, sigma in enumerate(valores_sigma):
-        semilla_escenario = None if semilla is None else semilla + i
+        semilla_escenario = None if semilla is None else semilla + (10 * i)
         resultado = simular_escenario(cantidad_bits, sigma, semilla_escenario)
         resultados.append(resultado)
 
@@ -164,7 +177,9 @@ def comparar_semillas(
         resultado = simular_escenario(cantidad_bits, sigma, semilla)
         filas.append(
             {
-                "Semilla": semilla,
+                "Semilla base": semilla,
+                "Semilla bits": resultado["Semilla bits"],
+                "Semilla ruido": resultado["Semilla ruido"],
                 "Bits simulados": cantidad_bits,
                 "σ": sigma,
                 "σ²": sigma**2,
@@ -191,15 +206,28 @@ def graficar_muestras_discretas(bits_tx: np.ndarray, bits_rx: np.ndarray, max_mu
 
     fig, ax = plt.subplots(figsize=(10, 3))
 
-    ax.stem(posiciones, bits_tx[:n], linefmt="C0-", markerfmt="C0o", basefmt=" ")
-    ax.scatter(posiciones, bits_rx[:n], marker="x", label="Bit decidido")
+    markerline, stemlines, baseline = ax.stem(
+        posiciones,
+        bits_tx[:n],
+        linefmt="C0-",
+        markerfmt="C0o",
+        basefmt=" ",
+        label="Bit transmitido",
+    )
+
+    ax.scatter(
+        posiciones,
+        bits_rx[:n],
+        marker="x",
+        label="Bit decidido",
+    )
 
     ax.set_title("Muestras discretas de bits transmitidos y decididos")
     ax.set_xlabel("Índice de bit")
     ax.set_ylabel("Valor del bit")
     ax.set_yticks([0, 1])
     ax.grid(True)
-    ax.legend(["Bit transmitido", "Bit decidido"])
+    ax.legend()
 
     st.pyplot(fig)
 
@@ -216,7 +244,7 @@ def graficar_ber_vs_sigma2(df: pd.DataFrame):
 
     ax.set_title("BER vs varianza del ruido σ²")
     ax.set_xlabel("Varianza del ruido σ²")
-    ax.set_ylabel("BER escala logarítmica")
+    ax.set_ylabel("BER en escala logarítmica")
     ax.grid(True, which="both")
 
     st.pyplot(fig)
@@ -241,7 +269,7 @@ def graficar_ber_vs_ebn0(df: pd.DataFrame):
 
     ax.set_title("BER vs Eb/N0")
     ax.set_xlabel("Eb/N0 en dB")
-    ax.set_ylabel("BER escala logarítmica")
+    ax.set_ylabel("BER en escala logarítmica")
     ax.grid(True, which="both")
 
     st.pyplot(fig)
@@ -266,7 +294,7 @@ def graficar_ber_vs_snr(df: pd.DataFrame):
 
     ax.set_title("BER vs SNR")
     ax.set_xlabel("SNR en dB")
-    ax.set_ylabel("BER escala logarítmica")
+    ax.set_ylabel("BER en escala logarítmica")
     ax.grid(True, which="both")
 
     st.pyplot(fig)
@@ -283,7 +311,7 @@ def render_guia_02() -> None:
         """
 Esta guía estudia el desempeño de una transmisión digital afectada por ruido utilizando
 muestras grandes de bits. El propósito es medir estadísticamente el efecto del ruido
-mediante BER, SNR, varianza y una aproximación didáctica de Eb/N0.
+mediante BER, SNR, varianza y una aproximación de Eb/N0 para un modelo BPSK normalizado.
 
 A diferencia de la Guía 1, donde se observó el fenómeno con pocas muestras, aquí se busca
 obtener tendencias más representativas mediante simulaciones con muchos bits.
@@ -391,9 +419,42 @@ donde:
 - $E_b$ es la energía por bit;
 - $N_0$ es la densidad espectral de potencia del ruido.
 
-En este modelo didáctico BPSK con símbolos $+1$ y $-1$, la energía por bit se aproxima
-como unitaria, por lo que $E_b/N_0$ se utiliza como una medida equivalente de desempeño
-para comparar el efecto del ruido.
+En esta guía se usa un modelo BPSK normalizado, donde los símbolos transmitidos son
+$+1$ y $-1$. Bajo esta normalización, la energía por bit se aproxima como:
+
+$$
+E_b \\approx 1
+$$
+
+Para ruido AWGN en banda base, la varianza del ruido se relaciona con $N_0$ mediante:
+
+$$
+\\sigma^2 = \\frac{N_0}{2}
+$$
+
+Por tanto:
+
+$$
+\\frac{E_b}{N_0} \\approx \\frac{1}{2\\sigma^2}
+$$
+
+Como en este modelo discreto:
+
+$$
+SNR \\approx \\frac{1}{\\sigma^2}
+$$
+
+entonces:
+
+$$
+\\frac{E_b}{N_0} \\approx \\frac{SNR}{2}
+$$
+
+En decibeles, esto equivale aproximadamente a:
+
+$$
+\\left(\\frac{E_b}{N_0}\\right)_{dB} \\approx SNR_{dB} - 3.01
+$$
 
 Las curvas de BER suelen representarse en escala semilogarítmica porque el BER puede tomar
 valores muy pequeños. Esta escala permite observar diferencias que no serían visibles en
@@ -403,9 +464,9 @@ una escala lineal.
 
         st.info(
             """
-Nota didáctica: En esta guía Eb/N0 se usa como aproximación educativa asociada al modelo BPSK
-normalizado. En un sistema físico completo, su cálculo requeriría considerar energía de bit,
-ancho de banda, densidad espectral de ruido y otros parámetros del sistema.
+Nota didáctica: Eb/N0 se calcula aquí bajo un modelo BPSK normalizado y AWGN en banda base.
+En un sistema físico completo, su cálculo requeriría considerar energía real de bit,
+ancho de banda, densidad espectral de ruido, tasa de bits y otros parámetros del sistema.
 """
         )
 
@@ -440,7 +501,7 @@ y discreta.
             )
 
             semilla = st.number_input(
-                "Semilla",
+                "Semilla base",
                 min_value=0,
                 max_value=999999,
                 value=123,
@@ -454,57 +515,41 @@ y discreta.
             st.info(
                 """
 La semilla permite repetir el mismo experimento aleatorio.  
-Si se mantienen los mismos parámetros y la misma semilla, el ruido y los bits generados
-serán los mismos.
+
+En esta guía se usa una semilla base para los bits y una semilla derivada para el ruido.
+Esto mantiene la reproducibilidad y separa las dos fuentes aleatorias.
 """
             )
 
             st.metric("Varianza teórica σ²", f"{sigma**2:.4f}")
 
         if ejecutar:
+            resultado = simular_escenario(cantidad_bits, sigma, int(semilla))
+
             bits_tx = generar_bits_aleatorios(cantidad_bits, int(semilla))
             simbolos = bits_a_simbolos_bpsk(bits_tx)
-            ruido, recibido = agregar_ruido_awgn(simbolos, sigma, int(semilla))
+            ruido, recibido = agregar_ruido_awgn(simbolos, sigma, int(semilla) + 1)
             bits_rx = decidir_bits_por_umbral(recibido)
-
-            errores, ber = calcular_ber(bits_tx, bits_rx)
-
-            (
-                potencia_senal,
-                potencia_ruido,
-                snr_lineal,
-                snr_db,
-                ebn0_lineal,
-                ebn0_db,
-            ) = calcular_metricas(simbolos, ruido)
-
-            resultado = {
-                "Bits simulados": cantidad_bits,
-                "σ": sigma,
-                "σ²": sigma**2,
-                "Potencia señal": potencia_senal,
-                "Potencia ruido": potencia_ruido,
-                "SNR": snr_lineal,
-                "SNR dB": snr_db,
-                "Eb/N0": ebn0_lineal,
-                "Eb/N0 dB": ebn0_db,
-                "Errores": errores,
-                "BER": ber,
-            }
 
             st.subheader("Resultados principales")
 
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Bits simulados", f"{cantidad_bits:,}")
-            c2.metric("Errores", errores)
-            c3.metric("BER", f"{ber:.6f}")
+            c2.metric("Errores", resultado["Errores"])
+            c3.metric("BER", f"{resultado['BER']:.6f}")
             c4.metric("σ²", f"{sigma**2:.4f}")
 
             c5, c6, c7, c8 = st.columns(4)
-            c5.metric("Potencia ruido", f"{potencia_ruido:.4f}")
-            c6.metric("SNR dB", "∞" if math.isinf(snr_db) else f"{snr_db:.2f}")
-            c7.metric("Eb/N0 dB", "∞" if math.isinf(ebn0_db) else f"{ebn0_db:.2f}")
-            c8.metric("Semilla", int(semilla))
+            c5.metric("Potencia ruido", f"{resultado['Potencia ruido']:.4f}")
+            c6.metric(
+                "SNR dB",
+                "∞" if math.isinf(resultado["SNR dB"]) else f"{resultado['SNR dB']:.2f}",
+            )
+            c7.metric(
+                "Eb/N0 dB",
+                "∞" if math.isinf(resultado["Eb/N0 dB"]) else f"{resultado['Eb/N0 dB']:.2f}",
+            )
+            c8.metric("Semilla base", int(semilla))
 
             st.subheader("Tabla de métricas")
             st.dataframe(pd.DataFrame([resultado]), width="stretch", hide_index=True)
@@ -527,10 +572,22 @@ $$
 El BER experimental obtenido fue:
 
 $$
-BER = {ber:.6f}
+BER = {resultado["BER"]:.6f}
 $$
 
-Este resultado corresponde a una realización específica del experimento, definida por la semilla.
+La SNR experimental fue:
+
+$$
+SNR_{{dB}} = {"∞" if math.isinf(resultado["SNR dB"]) else f"{resultado["SNR dB"]:.2f}"}\\, dB
+$$
+
+La aproximación de $E_b/N_0$ bajo el modelo BPSK normalizado fue:
+
+$$
+(E_b/N_0)_{{dB}} = {"∞" if math.isinf(resultado["Eb/N0 dB"]) else f"{resultado["Eb/N0 dB"]:.2f}"}\\, dB
+$$
+
+Este resultado corresponde a una realización específica del experimento definida por las semillas.
 """
             )
 
@@ -580,7 +637,7 @@ La comparación permite observar tendencias estadísticas:
 - al aumentar σ, aumenta σ²;
 - al aumentar σ², aumenta la potencia del ruido;
 - al aumentar el ruido, disminuyen SNR y Eb/N0;
-- cuando disminuye SNR, normalmente aumenta BER.
+- cuando disminuye SNR o Eb/N0, normalmente aumenta BER.
 """
             )
 
@@ -631,7 +688,7 @@ La comparación permite observar tendencias estadísticas:
 
 Las curvas de BER se presentan con eje vertical logarítmico. Si algún valor de BER es cero,
 se sustituye solo para la gráfica por un valor muy pequeño, porque el logaritmo de cero
-no está definido.
+no está definido. El BER real permanece registrado en la tabla.
 """
             )
 
@@ -694,7 +751,7 @@ Esta sección combina interpretación, actividades guiadas y preguntas conceptua
             )
 
             semillas_texto = st.text_input(
-                "Semillas separadas por coma",
+                "Semillas base separadas por coma",
                 value="10, 20, 30, 40, 50",
                 key="g2_semillas_texto",
             )
@@ -730,10 +787,10 @@ Con más bits, la estimación tiende a estabilizarse.
             st.dataframe(df_semillas, width="stretch", hide_index=True)
 
             fig, ax = plt.subplots(figsize=(8, 4))
-            ax.bar(df_semillas["Semilla"].astype(str), df_semillas["BER"])
+            ax.bar(df_semillas["Semilla base"].astype(str), df_semillas["BER"])
 
             ax.set_title("BER obtenido con distintas semillas")
-            ax.set_xlabel("Semilla")
+            ax.set_xlabel("Semilla base")
             ax.set_ylabel("BER")
             ax.grid(True)
 
@@ -752,6 +809,7 @@ Realice las siguientes pruebas:
 5. Observe las curvas semilogarítmicas.
 6. Cambie las semillas y observe la variación de resultados.
 7. Explique por qué el BER no debe estimarse con una sola muestra pequeña.
+8. Compare la diferencia entre SNR dB y $E_b/N_0$ dB.
 """
         )
 
@@ -829,6 +887,24 @@ Realice las siguientes pruebas:
             else:
                 st.error("Revise el concepto de semilla en simulaciones aleatorias.")
 
+        pregunta_5 = st.radio(
+            "Pregunta 5: En este modelo BPSK normalizado, ¿cómo se aproxima Eb/N0 respecto a SNR?",
+            [
+                "Eb/N0 ≈ SNR",
+                "Eb/N0 ≈ SNR / 2",
+                "Eb/N0 ≈ 2 · SNR",
+                "Eb/N0 no tiene relación con el ruido.",
+            ],
+            index=None,
+            key="g2_pregunta_5",
+        )
+
+        if pregunta_5:
+            if pregunta_5 == "Eb/N0 ≈ SNR / 2":
+                st.success("Correcto. Bajo la relación σ² = N0/2 y Eb ≈ 1, Eb/N0 se aproxima como SNR/2.")
+            else:
+                st.error("Revise la relación entre SNR y Eb/N0 para el modelo BPSK normalizado.")
+
     with tabs[5]:
         st.header("Conclusiones")
 
@@ -841,6 +917,8 @@ Al finalizar esta guía, el estudiante debe concluir que:
 - la varianza $\\sigma^2$ se relaciona con la potencia promedio del ruido;
 - la SNR mide la relación entre potencia de señal y potencia de ruido;
 - $E_b/N_0$ es una métrica importante para comparar desempeño en comunicaciones digitales;
+- en este modelo BPSK normalizado, $E_b/N_0 \\approx SNR/2$;
+- en decibeles, $(E_b/N_0)_{dB} \\approx SNR_{dB} - 3.01$;
 - al aumentar el ruido, disminuyen SNR y $E_b/N_0$;
 - al disminuir SNR o $E_b/N_0$, el BER tiende a aumentar;
 - las gráficas semilogarítmicas permiten observar mejor diferencias pequeñas de BER;
