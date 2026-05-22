@@ -4,6 +4,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import pandas as pd
 import streamlit as st
+import matplotlib.pyplot as plt
 
 
 # ============================================================
@@ -189,10 +190,10 @@ def hamming_decode_7(bits7: str) -> Dict[str, object]:
 
     if posicion_error == 0:
         corregido = bits7
-        corregido_por_hamming = False
+        corrigio = False
     else:
         corregido = invertir_bit(bits7, posicion_error)
-        corregido_por_hamming = True
+        corrigio = True
 
     datos = corregido[2] + corregido[4] + corregido[5] + corregido[6]
 
@@ -202,7 +203,7 @@ def hamming_decode_7(bits7: str) -> Dict[str, object]:
         "posicion_error": posicion_error,
         "corregido": corregido,
         "datos": datos,
-        "corrigio": corregido_por_hamming,
+        "corrigio": corrigio,
     }
 
 
@@ -279,6 +280,7 @@ def calcular_potencias(simbolos: np.ndarray, ruido: np.ndarray) -> Tuple[float, 
 
 # ============================================================
 # Pipeline completo
+# Mensaje -> CRC -> Hamming -> Canal -> Hamming Rx -> CRC Rx
 # ============================================================
 
 def ejecutar_pipeline_completo(
@@ -367,8 +369,10 @@ def escenario_sin_proteccion(
     semilla: int | None = None,
 ) -> Dict[str, object]:
     rx, simbolos, ruido, _ = transmitir_awgn(datos, sigma, semilla)
+
     errores = contar_errores(datos, rx)
     ber = calcular_ber(datos, rx)
+
     _, _, _, snr_db = calcular_potencias(simbolos, ruido)
 
     return {
@@ -510,6 +514,143 @@ def comparar_sigmas_sistema_completo(
 
 
 # ============================================================
+# Gráficas discretas y semilogarítmicas
+# ============================================================
+
+def graficar_bits_discretos(tx: str, rx: str, titulo: str, max_muestras: int = 120):
+    n = min(len(tx), len(rx), max_muestras)
+
+    posiciones = np.arange(1, n + 1)
+    tx_array = np.array([int(bit) for bit in tx[:n]])
+    rx_array = np.array([int(bit) for bit in rx[:n]])
+
+    fig, ax = plt.subplots(figsize=(10, 3))
+
+    ax.stem(
+        posiciones,
+        tx_array,
+        linefmt="C0-",
+        markerfmt="C0o",
+        basefmt=" ",
+        label="Transmitido",
+    )
+
+    ax.scatter(
+        posiciones,
+        rx_array,
+        marker="x",
+        label="Recibido / corregido",
+    )
+
+    ax.set_title(titulo)
+    ax.set_xlabel("Índice de bit")
+    ax.set_ylabel("Valor del bit")
+    ax.set_yticks([0, 1])
+    ax.grid(True)
+    ax.legend()
+
+    st.pyplot(fig)
+
+
+def graficar_senal_discreta(simbolos: np.ndarray, ruido: np.ndarray, recibido: np.ndarray, max_muestras: int = 120):
+    n = min(len(simbolos), max_muestras)
+
+    posiciones = np.arange(1, n + 1)
+
+    fig, ax = plt.subplots(figsize=(10, 4))
+
+    ax.stem(
+        posiciones,
+        simbolos[:n],
+        linefmt="C0-",
+        markerfmt="C0o",
+        basefmt=" ",
+        label="Símbolo transmitido",
+    )
+
+    ax.scatter(
+        posiciones,
+        recibido[:n],
+        marker="x",
+        label="Valor recibido",
+    )
+
+    ax.axhline(0, linestyle="--", linewidth=1, label="Umbral")
+
+    ax.set_title("Símbolos y valores recibidos por muestra")
+    ax.set_xlabel("Índice de muestra")
+    ax.set_ylabel("Amplitud")
+    ax.grid(True)
+    ax.legend()
+
+    st.pyplot(fig)
+
+    fig_ruido, ax_ruido = plt.subplots(figsize=(10, 3))
+
+    ax_ruido.stem(
+        posiciones,
+        ruido[:n],
+        linefmt="C1-",
+        markerfmt="C1o",
+        basefmt=" ",
+    )
+
+    ax_ruido.axhline(0, linestyle="--", linewidth=1)
+
+    ax_ruido.set_title("Ruido gaussiano por muestra")
+    ax_ruido.set_xlabel("Índice de muestra")
+    ax_ruido.set_ylabel("Ruido")
+    ax_ruido.grid(True)
+
+    st.pyplot(fig_ruido)
+
+
+def graficar_ber_escenarios(df: pd.DataFrame):
+    df_plot = df.copy()
+    df_plot["BER ajustado"] = df_plot["BER final"].replace(0, 1e-6)
+
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.bar(df_plot["Escenario"], df_plot["BER ajustado"])
+    ax.set_yscale("log")
+
+    ax.set_title("BER final por escenario")
+    ax.set_xlabel("Escenario")
+    ax.set_ylabel("BER en escala logarítmica")
+    ax.grid(True, which="both", axis="y")
+
+    plt.xticks(rotation=20)
+    st.pyplot(fig)
+
+
+def graficar_ber_vs_sigma(df: pd.DataFrame):
+    df_plot = df.copy()
+    df_plot["BER ajustado"] = df_plot["BER final"].replace(0, 1e-6)
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.semilogy(df_plot["σ"], df_plot["BER ajustado"], marker="o")
+
+    ax.set_title("BER final vs σ para Hamming + CRC")
+    ax.set_xlabel("Desviación estándar σ")
+    ax.set_ylabel("BER final en escala logarítmica")
+    ax.grid(True, which="both")
+
+    st.pyplot(fig)
+
+
+def graficar_bits_transmitidos(df: pd.DataFrame):
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.bar(df["Escenario"], df["Bits transmitidos"])
+
+    ax.set_title("Bits transmitidos por escenario")
+    ax.set_xlabel("Escenario")
+    ax.set_ylabel("Bits transmitidos")
+    ax.grid(True, axis="y")
+
+    plt.xticks(rotation=20)
+    st.pyplot(fig)
+
+
+# ============================================================
 # Interfaz Streamlit
 # ============================================================
 
@@ -522,6 +663,9 @@ Esta guía integra los elementos desarrollados en las guías anteriores: ruido, 
 SNR, Hamming, síndrome y CRC. El objetivo es evaluar el desempeño de un sistema
 completo de transmisión digital que utiliza corrección de errores mediante Hamming
 y detección final mediante CRC.
+
+Las señales y tramas se representan de manera discreta, mientras que las curvas de
+desempeño se presentan en escala semilogarítmica cuando se analiza BER.
 """
     )
 
@@ -529,18 +673,22 @@ y detección final mediante CRC.
         [
             "Objetivos",
             "Teoría",
-            "Flujo completo",
-            "Señal y receptor",
-            "Comparación de escenarios",
+            "Sistema completo",
+            "Comparación",
             "Estadística final",
-            "Dinámica",
+            "Análisis y dinámica",
             "Conclusiones",
             "Referencias",
         ]
     )
 
+    # ========================================================
+    # Objetivos
+    # ========================================================
+
     with tabs[0]:
         st.header("Objetivos")
+
         st.markdown(
             """
 **Objetivo general**
@@ -556,12 +704,18 @@ canal con ruido y verificación final mediante métricas estadísticas.
 4. Verificar la detección de errores remanentes mediante CRC.
 5. Comparar escenarios sin protección, con CRC, con Hamming y con Hamming + CRC.
 6. Analizar el impacto de la desviación estándar del ruido sobre el desempeño.
-7. Relacionar la mejora obtenida con los conceptos de redundancia, corrección y detección.
+7. Representar bits y muestras de forma discreta.
+8. Usar gráficas semilogarítmicas para comparar BER.
 """
         )
 
+    # ========================================================
+    # Teoría
+    # ========================================================
+
     with tabs[1]:
         st.header("Fundamentación teórica")
+
         st.markdown(
             """
 En un sistema digital real, el control de errores no depende de una sola técnica. Es
@@ -575,6 +729,7 @@ $$
 
 El CRC se aplica primero para agregar un residuo de detección al mensaje. Luego, la
 secuencia resultante se divide en bloques de 4 bits y se codifica con Hamming (7,4).
+
 Después de pasar por el canal con ruido, el receptor aplica el síndrome de Hamming para
 corregir errores de un bit por bloque. Finalmente, el CRC verifica si la información
 recuperada contiene errores remanentes.
@@ -601,14 +756,41 @@ $$
 SNR = \\frac{P_s}{P_n}
 $$
 
-El objetivo principal no es solo observar si la trama llega correctamente, sino comparar
-cuantitativamente cómo mejora el sistema cuando se agrega redundancia para corrección
-y detección.
+La función de cada etapa es:
+
+| Etapa | Función |
+|---|---|
+| CRC Tx | Agrega redundancia para detección |
+| Hamming Tx | Agrega redundancia para corrección |
+| Canal | Introduce ruido y posibles errores |
+| Hamming Rx | Corrige un error por bloque |
+| CRC Rx | Detecta errores remanentes |
+
+La mejora del sistema debe evaluarse no solo por reducción de BER, sino también por el
+costo de redundancia, es decir, por el aumento en los bits transmitidos.
 """
         )
 
+        st.info(
+            """
+Idea central: Hamming corrige errores simples por bloque, mientras que CRC permite
+detectar errores que Hamming no logró corregir correctamente.
+"""
+        )
+
+    # ========================================================
+    # Sistema completo
+    # ========================================================
+
     with tabs[2]:
         st.header("Flujo completo Hamming + CRC")
+
+        st.markdown(
+            """
+En esta sección se ejecuta el flujo completo para un mensaje binario. La aplicación
+muestra las etapas del transmisor, canal y receptor.
+"""
+        )
 
         col_param, col_info = st.columns([1, 1])
 
@@ -648,8 +830,8 @@ y detección.
         with col_info:
             st.info(
                 """
-La secuencia se protege primero con CRC y luego con Hamming. Después del canal, Hamming
-intenta corregir errores de un bit por bloque y CRC valida si quedan errores remanentes.
+Primero se agrega CRC, luego se codifica con Hamming. Después del canal, Hamming corrige
+errores simples y CRC verifica si quedan errores remanentes.
 """
             )
             st.metric("Varianza del ruido σ²", f"{sigma**2:.4f}")
@@ -694,6 +876,27 @@ intenta corregir errores de un bit por bloque y CRC valida si quedan errores rem
                 language="text",
             )
 
+            st.subheader("Trama codificada antes y después del canal")
+            graficar_bits_discretos(
+                resumen["Hamming Tx"],
+                resumen["Hamming Rx"],
+                "Hamming Tx vs Hamming Rx",
+            )
+
+            st.subheader("Trama recibida vs corregida por Hamming")
+            graficar_bits_discretos(
+                resumen["Hamming Rx"],
+                resumen["Hamming corregido"],
+                "Hamming Rx vs Hamming corregido",
+            )
+
+            st.subheader("Símbolos, ruido y valores recibidos")
+            graficar_senal_discreta(
+                resultado["simbolos"],
+                resultado["ruido"],
+                resultado["recibido_analogico"],
+            )
+
             st.subheader("Codificación Hamming en el transmisor")
             st.dataframe(resultado["tabla_hamming_tx"], width="stretch", hide_index=True)
 
@@ -710,46 +913,26 @@ intenta corregir errores de un bit por bloque y CRC valida si quedan errores rem
 
             st.session_state["g6_ultimo_resultado"] = resultado
 
+    # ========================================================
+    # Comparación de escenarios
+    # ========================================================
+
     with tabs[3]:
-        st.header("Señal codificada en el tiempo")
-
-        if "g6_ultimo_resultado" not in st.session_state:
-            st.info("Ejecute primero el flujo completo en la pestaña anterior.")
-        else:
-            resultado = st.session_state["g6_ultimo_resultado"]
-            resumen = resultado["resumen"]
-
-            simbolos = resultado["simbolos"]
-            ruido = resultado["ruido"]
-            recibido_analogico = resultado["recibido_analogico"]
-
-            df_senal = pd.DataFrame(
-                {
-                    "Posición": np.arange(1, len(simbolos) + 1),
-                    "Símbolo Tx": simbolos,
-                    "Valor recibido": recibido_analogico,
-                    "Umbral": np.zeros(len(simbolos)),
-                    "Ruido": ruido,
-                }
-            ).set_index("Posición")
-
-            st.subheader("Señal transmitida vs señal recibida")
-            st.line_chart(df_senal[["Símbolo Tx", "Valor recibido", "Umbral"]])
-
-            st.subheader("Ruido en el tiempo")
-            st.line_chart(df_senal[["Ruido"]])
-
-            st.markdown(
-                f"""
-- La trama Hamming transmitida tiene {len(resumen["Hamming Tx"])} bits codificados.
-- El canal produjo {resumen["Errores canal codificado"]} errores sobre la trama codificada.
-- Después de Hamming quedaron {resumen["Errores post-Hamming"]} errores en la trama con CRC.
-- El CRC final determinó el estado: **{resumen["Estado final"]}**.
-"""
-            )
-
-    with tabs[4]:
         st.header("Comparación de escenarios")
+
+        st.markdown(
+            """
+En esta sección se compara el desempeño del sistema bajo cuatro escenarios:
+
+1. Sin protección.
+2. CRC solo.
+3. Hamming solo.
+4. Hamming + CRC.
+
+La comparación permite observar la mejora producida por la corrección y detección de
+errores, junto con el costo de redundancia.
+"""
+        )
 
         col_param, col_info = st.columns([1, 1])
 
@@ -762,8 +945,7 @@ intenta corregir errores de un bit por bloque y CRC valida si quedan errores rem
             )
 
             st.caption(
-                "Para mantener la app estable en la nube, las simulaciones interactivas se limitan a 10,000 bits. "
-                "El análisis puede extenderse a más bits en ejecución local."
+                "Para mantener la app estable en la nube, las simulaciones interactivas se limitan a 10,000 bits."
             )
 
             generador_comp = st.text_input(
@@ -795,8 +977,8 @@ intenta corregir errores de un bit por bloque y CRC valida si quedan errores rem
         with col_info:
             st.info(
                 """
-Esta comparación permite responder una pregunta central del proyecto: ¿cómo mejora
-el desempeño cuando se agregan mecanismos de detección y corrección de errores?
+La comparación responde una pregunta central del proyecto: ¿cómo mejora el desempeño
+cuando se agregan mecanismos de detección y corrección de errores?
 """
             )
 
@@ -816,10 +998,10 @@ el desempeño cuando se agregan mecanismos de detección y corrección de errore
             st.dataframe(df_comp, width="stretch", hide_index=True)
 
             st.subheader("BER final por escenario")
-            st.bar_chart(df_comp[["Escenario", "BER final"]].set_index("Escenario"))
+            graficar_ber_escenarios(df_comp)
 
             st.subheader("Bits transmitidos por escenario")
-            st.bar_chart(df_comp[["Escenario", "Bits transmitidos"]].set_index("Escenario"))
+            graficar_bits_transmitidos(df_comp)
 
             st.markdown(
                 """
@@ -833,8 +1015,21 @@ el desempeño cuando se agregan mecanismos de detección y corrección de errore
 """
             )
 
-    with tabs[5]:
+            st.session_state["g6_comparacion"] = df_comp
+
+    # ========================================================
+    # Estadística final
+    # ========================================================
+
+    with tabs[4]:
         st.header("Estadística final del sistema completo")
+
+        st.markdown(
+            """
+En esta sección se evalúa el sistema Hamming + CRC bajo diferentes niveles de ruido.
+El objetivo es observar cómo varía el BER final al aumentar la desviación estándar.
+"""
+        )
 
         col_param, col_info = st.columns([1, 1])
 
@@ -876,8 +1071,9 @@ el desempeño cuando se agregan mecanismos de detección y corrección de errore
         with col_info:
             st.info(
                 """
-Este análisis resume el desempeño final del sistema completo ante distintos niveles de
-ruido. Es la evidencia estadística principal de la guía.
+Al aumentar σ, aumenta la potencia del ruido.  
+Esto tiende a aumentar los errores del canal y puede dejar errores remanentes después
+de Hamming, que CRC debe detectar.
 """
             )
 
@@ -913,10 +1109,7 @@ ruido. Es la evidencia estadística principal de la guía.
             st.dataframe(df_est, width="stretch", hide_index=True)
 
             st.subheader("BER final vs σ")
-            st.line_chart(df_est[["σ", "BER final"]].set_index("σ"))
-
-            st.subheader("Bits transmitidos vs σ")
-            st.line_chart(df_est[["σ", "Bits transmitidos"]].set_index("σ"))
+            graficar_ber_vs_sigma(df_est)
 
             st.subheader("Estados finales")
             conteo = df_est["Estado"].value_counts().reset_index()
@@ -935,23 +1128,93 @@ ruido. Es la evidencia estadística principal de la guía.
 """
             )
 
-    with tabs[6]:
-        st.header("Dinámica de aprendizaje")
+            st.session_state["g6_estadistica"] = df_est
+
+    # ========================================================
+    # Análisis y dinámica
+    # ========================================================
+
+    with tabs[5]:
+        st.header("Análisis y dinámica")
+
+        st.markdown(
+            """
+Esta sección integra la interpretación de resultados con actividades guiadas.
+El objetivo es que el estudiante relacione el comportamiento del sistema completo con
+las guías anteriores.
+"""
+        )
+
+        if "g6_ultimo_resultado" in st.session_state:
+            st.subheader("Último flujo completo ejecutado")
+
+            resumen = st.session_state["g6_ultimo_resultado"]["resumen"]
+
+            st.table(
+                pd.DataFrame(
+                    [
+                        {
+                            "BER canal codificado": resumen["BER canal codificado"],
+                            "BER post-Hamming": resumen["BER post-Hamming"],
+                            "BER datos finales": resumen["BER datos finales"],
+                            "Errores canal": resumen["Errores canal codificado"],
+                            "Errores post-Hamming": resumen["Errores post-Hamming"],
+                            "Errores finales": resumen["Errores datos finales"],
+                            "Estado final": resumen["Estado final"],
+                            "σ": resumen["σ"],
+                            "σ²": resumen["σ²"],
+                        }
+                    ]
+                )
+            )
+        else:
+            st.info("Ejecute primero el sistema completo.")
+
+        if "g6_comparacion" in st.session_state:
+            st.subheader("Última comparación de escenarios")
+
+            df_comp = st.session_state["g6_comparacion"]
+
+            st.dataframe(df_comp, width="stretch", hide_index=True)
+        else:
+            st.info("Ejecute una comparación de escenarios.")
+
+        if "g6_estadistica" in st.session_state:
+            st.subheader("Última estadística final")
+
+            df_est = st.session_state["g6_estadistica"]
+
+            mejor = df_est.loc[df_est["BER final"].idxmin()]
+            peor = df_est.loc[df_est["BER final"].idxmax()]
+
+            st.markdown(
+                f"""
+- Menor BER final observado: **{mejor["BER final"]:.6f}** con $\\sigma = {mejor["σ"]:.2f}$.
+- Mayor BER final observado: **{peor["BER final"]:.6f}** con $\\sigma = {peor["σ"]:.2f}$.
+"""
+            )
+        else:
+            st.info("Ejecute la estadística final para ver el resumen.")
+
+        st.subheader("Actividades guiadas")
 
         st.markdown(
             """
 Realice las siguientes actividades:
 
-1. Ejecute el flujo completo con un mensaje corto y σ = 0.10.
-2. Repita con σ = 0.80.
+1. Ejecute el flujo completo con un mensaje corto y $\\sigma = 0.10$.
+2. Repita con $\\sigma = 0.80$.
 3. Observe el BER del canal codificado y el BER post-Hamming.
 4. Verifique si el CRC acepta o rechaza la trama.
 5. Compare los escenarios sin protección, CRC solo, Hamming solo y Hamming + CRC.
-6. Ejecute la estadística final para varios valores de σ.
+6. Ejecute la estadística final para varios valores de $\\sigma$.
 7. Explique en qué casos Hamming mejora el desempeño.
 8. Explique por qué CRC es necesario aunque Hamming corrija errores.
+9. Analice el costo de redundancia comparando bits útiles contra bits transmitidos.
 """
         )
+
+        st.subheader("Preguntas de análisis")
 
         pregunta_1 = st.radio(
             "Pregunta 1: ¿Cuál es la función de Hamming en el sistema completo?",
@@ -1007,7 +1270,47 @@ Realice las siguientes actividades:
             else:
                 st.error("Revise la importancia de las estadísticas comparativas.")
 
-    with tabs[7]:
+        pregunta_4 = st.radio(
+            "Pregunta 4: ¿Qué costo tiene agregar Hamming y CRC?",
+            [
+                "Aumenta la cantidad de bits transmitidos.",
+                "Elimina la necesidad de canal.",
+                "Reduce todos los mensajes a cero bits.",
+                "Impide calcular SNR.",
+            ],
+            index=None,
+            key="g6_pregunta_4",
+        )
+
+        if pregunta_4:
+            if pregunta_4 == "Aumenta la cantidad de bits transmitidos.":
+                st.success("Correcto. La redundancia mejora la confiabilidad, pero aumenta los bits transmitidos.")
+            else:
+                st.error("Revise el concepto de redundancia.")
+
+        pregunta_5 = st.radio(
+            "Pregunta 5: ¿Por qué se usa escala logarítmica para BER?",
+            [
+                "Porque el BER puede tomar valores pequeños y la escala logarítmica facilita la comparación.",
+                "Porque la escala logarítmica corrige los errores.",
+                "Porque Hamming solo funciona con logaritmos.",
+                "Porque CRC no usa bits.",
+            ],
+            index=None,
+            key="g6_pregunta_5",
+        )
+
+        if pregunta_5:
+            if pregunta_5 == "Porque el BER puede tomar valores pequeños y la escala logarítmica facilita la comparación.":
+                st.success("Correcto. La escala semilogarítmica es común para curvas de desempeño BER.")
+            else:
+                st.error("Revise la razón de usar BER en escala logarítmica.")
+
+    # ========================================================
+    # Conclusiones
+    # ========================================================
+
+    with tabs[6]:
         st.header("Conclusiones")
 
         st.markdown(
@@ -1021,11 +1324,17 @@ Al finalizar esta guía, el estudiante debe concluir que:
 - Hamming reduce errores cuando estos son corregibles;
 - CRC detecta errores remanentes que no fueron corregidos;
 - la comparación estadística permite evaluar la mejora real del sistema;
-- mayor confiabilidad implica mayor redundancia y mayor cantidad de bits transmitidos.
+- mayor confiabilidad implica mayor redundancia y mayor cantidad de bits transmitidos;
+- los bits y muestras deben representarse de forma discreta;
+- las curvas de desempeño BER se interpretan mejor en escala semilogarítmica.
 """
         )
 
-    with tabs[8]:
+    # ========================================================
+    # Referencias
+    # ========================================================
+
+    with tabs[7]:
         st.header("Referencias")
 
         st.markdown(
