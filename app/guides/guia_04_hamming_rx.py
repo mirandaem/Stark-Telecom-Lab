@@ -3,11 +3,34 @@ import pandas as pd
 import streamlit as st
 
 
+# ============================================================
+# Funciones base Hamming (7,4)
+# Estructura: [P1 P2 D1 P4 D2 D3 D4]
+# ============================================================
+
+def validar_bits(bits: str) -> bool:
+    return len(bits) > 0 and all(bit in "01" for bit in bits)
+
+
 def validar_codigo_hamming(bits: str) -> bool:
     """
     Valida que la palabra recibida tenga exactamente 7 bits.
     """
     return len(bits) == 7 and all(bit in "01" for bit in bits)
+
+
+def validar_longitud_multiple_7(bits: str) -> bool:
+    """
+    Valida que una secuencia tenga longitud múltiplo de 7.
+    """
+    return validar_bits(bits) and len(bits) % 7 == 0
+
+
+def dividir_en_bloques(bits: str, tamano: int) -> list[str]:
+    """
+    Divide una secuencia binaria en bloques de tamaño fijo.
+    """
+    return [bits[i:i + tamano] for i in range(0, len(bits), tamano)]
 
 
 def invertir_bit(bits: str, posicion: int) -> str:
@@ -18,6 +41,13 @@ def invertir_bit(bits: str, posicion: int) -> str:
     indice = posicion - 1
     lista[indice] = "1" if lista[indice] == "0" else "0"
     return "".join(lista)
+
+
+def extraer_datos_hamming(bits: str) -> str:
+    """
+    Extrae los datos D1 D2 D3 D4 de una palabra Hamming (7,4).
+    """
+    return bits[2] + bits[4] + bits[5] + bits[6]
 
 
 def calcular_sindrome(bits: str) -> dict:
@@ -35,11 +65,6 @@ def calcular_sindrome(bits: str) -> dict:
     """
     b = [int(bit) for bit in bits]
 
-    # Ajuste para trabajar con posiciones humanas:
-    # b[0] -> posición 1
-    # b[1] -> posición 2
-    # ...
-    # b[6] -> posición 7
     s1 = b[0] ^ b[2] ^ b[4] ^ b[6]
     s2 = b[1] ^ b[2] ^ b[5] ^ b[6]
     s4 = b[3] ^ b[4] ^ b[5] ^ b[6]
@@ -65,11 +90,13 @@ def corregir_hamming(bits: str) -> dict:
     if posicion_error == 0:
         corregido = bits
         estado = "Sin error detectable"
+        corrigio = False
     else:
         corregido = invertir_bit(bits, posicion_error)
         estado = f"Error corregido en la posición {posicion_error}"
+        corrigio = True
 
-    datos_extraidos = corregido[2] + corregido[4] + corregido[5] + corregido[6]
+    datos_extraidos = extraer_datos_hamming(corregido)
 
     return {
         "recibido": bits,
@@ -77,6 +104,7 @@ def corregir_hamming(bits: str) -> dict:
         "corregido": corregido,
         "datos_extraidos": datos_extraidos,
         "estado": estado,
+        "corrigio": corrigio,
     }
 
 
@@ -134,21 +162,129 @@ def construir_tabla_comparacion(original: str, recibido: str, corregido: str) ->
     return pd.DataFrame(filas)
 
 
-def extraer_datos_hamming(bits: str) -> str:
+def construir_tabla_estructura_receptor() -> pd.DataFrame:
     """
-    Extrae los datos D1 D2 D3 D4 de una palabra Hamming (7,4).
+    Tabla de estructura de posiciones para el receptor.
     """
-    return bits[2] + bits[4] + bits[5] + bits[6]
+    return pd.DataFrame(
+        {
+            "Posición": [1, 2, 3, 4, 5, 6, 7],
+            "Tipo": ["P1", "P2", "D1", "P4", "D2", "D3", "D4"],
+            "Rol": [
+                "Paridad",
+                "Paridad",
+                "Dato",
+                "Paridad",
+                "Dato",
+                "Dato",
+                "Dato",
+            ],
+            "Participa en": [
+                "s1",
+                "s2",
+                "s1, s2",
+                "s4",
+                "s1, s4",
+                "s2, s4",
+                "s1, s2, s4",
+            ],
+        }
+    )
 
+
+def decodificar_bloques_hamming(bits_codificados: str) -> tuple[str, str, pd.DataFrame]:
+    """
+    Decodifica una secuencia formada por bloques Hamming de 7 bits.
+    Devuelve datos recuperados, bloques corregidos y tabla de resultados.
+    """
+    bloques = dividir_en_bloques(bits_codificados, 7)
+
+    datos_recuperados = []
+    bloques_corregidos = []
+    filas = []
+
+    for i, bloque in enumerate(bloques, start=1):
+        resultado = corregir_hamming(bloque)
+        sindrome = resultado["sindrome"]
+
+        datos_recuperados.append(resultado["datos_extraidos"])
+        bloques_corregidos.append(resultado["corregido"])
+
+        filas.append(
+            {
+                "Bloque": i,
+                "Recibido": bloque,
+                "Síndrome": sindrome["sindrome_binario"],
+                "Posición detectada": sindrome["posicion_error"],
+                "Corrección aplicada": "Sí" if resultado["corrigio"] else "No",
+                "Bloque corregido": resultado["corregido"],
+                "Datos recuperados": resultado["datos_extraidos"],
+                "Estado": resultado["estado"],
+            }
+        )
+
+    return "".join(datos_recuperados), "".join(bloques_corregidos), pd.DataFrame(filas)
+
+
+def inyectar_errores_en_bloques(
+    bits_codificados: str,
+    cantidad_errores_por_bloque: int,
+    semilla: int | None = None,
+) -> tuple[str, pd.DataFrame]:
+    """
+    Inyecta errores aleatorios por bloque de 7 bits.
+    La cantidad de errores por bloque puede ser 0, 1 o 2.
+    """
+    rng = np.random.default_rng(semilla)
+    bloques = dividir_en_bloques(bits_codificados, 7)
+
+    bloques_rx = []
+    filas = []
+
+    for i, bloque in enumerate(bloques, start=1):
+        bloque_rx = bloque
+        posiciones = []
+
+        if cantidad_errores_por_bloque > 0:
+            posiciones = rng.choice(
+                np.arange(1, 8),
+                size=cantidad_errores_por_bloque,
+                replace=False,
+            ).tolist()
+
+            for posicion in posiciones:
+                bloque_rx = invertir_bit(bloque_rx, int(posicion))
+
+        bloques_rx.append(bloque_rx)
+
+        filas.append(
+            {
+                "Bloque": i,
+                "Bloque original": bloque,
+                "Posiciones alteradas": ", ".join(str(p) for p in posiciones) if posiciones else "Ninguna",
+                "Bloque recibido": bloque_rx,
+            }
+        )
+
+    return "".join(bloques_rx), pd.DataFrame(filas)
+
+
+# ============================================================
+# Interfaz Streamlit
+# ============================================================
 
 def render_guia_04() -> None:
     st.title("Guía 4: Decodificación Hamming y corrección mediante síndrome")
 
     st.markdown(
         """
-Esta guía estudia el proceso realizado por el receptor en un sistema que utiliza código
+Esta guía estudia el proceso realizado por el receptor cuando se utiliza código
 Hamming (7,4). El estudiante podrá inyectar errores, calcular el síndrome, localizar
 la posición afectada y observar la corrección de errores de un solo bit.
+
+Siguiendo la estructura de la Guía 3, el análisis se mantiene discreto mediante tablas,
+bloques y operaciones XOR. Hamming (7,4) corrige un error por bloque de 7 bits, pero no
+garantiza corrección correcta cuando ocurren errores múltiples dentro del mismo bloque.
 """
     )
 
@@ -156,14 +292,18 @@ la posición afectada y observar la corrección de errores de un solo bit.
         [
             "Objetivos",
             "Teoría",
-            "Corrección de 1 bit",
+            "Corrección de un bloque",
+            "Decodificación por bloques",
             "Errores múltiples",
-            "Análisis",
-            "Dinámica",
+            "Análisis y dinámica",
             "Conclusiones",
             "Referencias",
         ]
     )
+
+    # ========================================================
+    # Objetivos
+    # ========================================================
 
     with tabs[0]:
         st.header("Objetivos")
@@ -183,9 +323,14 @@ bit mediante el cálculo del síndrome en el receptor.
 4. Interpretar el síndrome como la posición del error.
 5. Corregir un error de un solo bit.
 6. Extraer los datos originales después de la corrección.
-7. Analizar las limitaciones del código Hamming frente a errores múltiples.
+7. Decodificar secuencias formadas por varios bloques Hamming.
+8. Analizar las limitaciones de Hamming frente a errores múltiples.
 """
         )
+
+    # ========================================================
+    # Teoría
+    # ========================================================
 
     with tabs[1]:
         st.header("Fundamentación teórica")
@@ -222,8 +367,14 @@ $$
 S = (s_4s_2s_1)_2
 $$
 
-Si el síndrome es cero, no se detecta error. Si el síndrome es distinto de cero, su valor
-decimal indica la posición del bit que debe corregirse.
+Si el síndrome es cero:
+
+$$
+S = 000
+$$
+
+no se detecta error. Si el síndrome es distinto de cero, su valor decimal indica la
+posición del bit que debe corregirse.
 
 Por ejemplo:
 
@@ -233,20 +384,39 @@ $$
 
 indica un error en la posición 5.
 
-El código Hamming (7,4) permite corregir errores de un solo bit. Sin embargo, cuando
-ocurren dos o más errores dentro de la misma palabra, el síndrome puede apuntar a una
-posición incorrecta. Esta limitación justifica el uso posterior de CRC como mecanismo
-de detección de errores remanentes.
+El código Hamming (7,4) permite corregir un error de un solo bit por bloque. Si ocurren
+dos o más errores dentro del mismo bloque, el síndrome puede apuntar a una posición
+incorrecta y producir una corrección equivocada.
 """
         )
 
+        st.subheader("Estructura del receptor")
+
+        st.dataframe(
+            construir_tabla_estructura_receptor(),
+            width="stretch",
+            hide_index=True,
+        )
+
+        st.info(
+            """
+Interpretación importante: el síndrome no es una cantidad de errores. En Hamming (7,4),
+el síndrome se interpreta como la posición del error cuando se asume que hay un solo bit
+alterado dentro del bloque.
+"""
+        )
+
+    # ========================================================
+    # Corrección de un bloque
+    # ========================================================
+
     with tabs[2]:
-        st.header("Corrección de un error de un solo bit")
+        st.header("Corrección de un bloque de 7 bits")
 
         st.markdown(
             """
-Ingrese una palabra Hamming válida de 7 bits. Luego seleccione una posición para
-inyectar un error. La aplicación calculará el síndrome y realizará la corrección.
+Ingrese una palabra Hamming válida de 7 bits. Luego seleccione una posición para inyectar
+un error. La aplicación calculará el síndrome y aplicará la corrección correspondiente.
 """
         )
 
@@ -270,20 +440,20 @@ inyectar un error. La aplicación calculará el síndrome y realizará la correc
                 key="g4_pos_error",
             )
 
-            ejecutar = st.button("Inyectar error y corregir", use_container_width=True)
+            ejecutar = st.button("Inyectar error y corregir", width="stretch")
 
         with col_info:
             st.info(
                 """
-El síndrome permite localizar el error. Si ocurre un solo error, Hamming (7,4)
-puede corregirlo invirtiendo el bit indicado por el síndrome.
+Si ocurre un solo error dentro del bloque, el síndrome indica la posición alterada.
+El receptor corrige invirtiendo el bit señalado por el síndrome.
 """
             )
 
         if not validar_codigo_hamming(palabra_tx):
             st.error("Debe ingresar exactamente 7 bits. Ejemplo válido: 0110011.")
         elif ejecutar:
-            palabra_rx = invertir_bit(palabra_tx, posicion_error)
+            palabra_rx = invertir_bit(palabra_tx, int(posicion_error))
             resultado = corregir_hamming(palabra_rx)
             sindrome = resultado["sindrome"]
 
@@ -311,11 +481,11 @@ puede corregirlo invirtiendo el bit indicado por el síndrome.
 
             st.subheader("Tabla de comprobaciones de paridad")
 
-            st.dataframe(tabla_sindrome, use_container_width=True, hide_index=True)
+            st.dataframe(tabla_sindrome, width="stretch", hide_index=True)
 
             st.subheader("Comparación transmitido, recibido y corregido")
 
-            st.dataframe(tabla_comparacion, use_container_width=True, hide_index=True)
+            st.dataframe(tabla_comparacion, width="stretch", hide_index=True)
 
             if resultado["corregido"] == palabra_tx:
                 st.success(
@@ -336,27 +506,151 @@ $$
 S = ({sindrome["s4"]}{sindrome["s2"]}{sindrome["s1"]})_2 = {sindrome["posicion_error"]}
 $$
 
-Por tanto, el receptor identifica error en la posición {sindrome["posicion_error"]}.
+Por tanto, bajo la hipótesis de un único error, el receptor identifica error en la
+posición {sindrome["posicion_error"]}.
 """
             )
 
-            st.session_state["guia_04_ultimo_resultado"] = {
+            st.session_state["guia_04_ultimo_bloque"] = {
                 "tx": palabra_tx,
                 "rx": palabra_rx,
                 "corregido": resultado["corregido"],
                 "sindrome": sindrome["sindrome_binario"],
                 "posicion": sindrome["posicion_error"],
                 "datos": resultado["datos_extraidos"],
+                "estado": resultado["estado"],
             }
 
+    # ========================================================
+    # Decodificación por bloques
+    # ========================================================
+
     with tabs[3]:
+        st.header("Decodificación por bloques")
+
+        st.markdown(
+            """
+En la Guía 3 se codificaron mensajes largos dividiéndolos en bloques de 4 bits, donde
+cada bloque produjo una palabra Hamming de 7 bits. En esta sección se realiza el proceso
+inverso: una secuencia codificada se divide en bloques de 7 bits, se calcula el síndrome
+de cada bloque y se recuperan los datos.
+"""
+        )
+
+        col_param, col_info = st.columns([1, 1])
+
+        with col_param:
+            secuencia_codificada = st.text_area(
+                "Secuencia Hamming codificada",
+                value="01100111110000",
+                help="Debe tener longitud múltiplo de 7.",
+                key="g4_secuencia_bloques",
+            ).strip().replace(" ", "").replace("\n", "")
+
+            cantidad_errores = st.selectbox(
+                "Errores aleatorios por bloque",
+                [0, 1, 2],
+                index=1,
+                key="g4_errores_por_bloque",
+            )
+
+            semilla = st.number_input(
+                "Semilla",
+                min_value=0,
+                max_value=999999,
+                value=50,
+                step=1,
+                key="g4_semilla_bloques",
+            )
+
+            ejecutar_bloques = st.button("Inyectar errores y decodificar bloques", width="stretch")
+
+        with col_info:
+            st.info(
+                """
+Use 1 error por bloque para observar corrección exitosa.  
+Use 2 errores por bloque para observar los límites de Hamming.
+"""
+            )
+
+        if not validar_longitud_multiple_7(secuencia_codificada):
+            st.error("La secuencia debe ser binaria y tener longitud múltiplo de 7.")
+        elif ejecutar_bloques:
+            secuencia_rx, tabla_inyeccion = inyectar_errores_en_bloques(
+                bits_codificados=secuencia_codificada,
+                cantidad_errores_por_bloque=int(cantidad_errores),
+                semilla=int(semilla),
+            )
+
+            datos_recuperados, bloques_corregidos, tabla_decodificacion = decodificar_bloques_hamming(
+                secuencia_rx
+            )
+
+            bloques_originales = dividir_en_bloques(secuencia_codificada, 7)
+            bloques_finales = dividir_en_bloques(bloques_corregidos, 7)
+
+            bloques_correctos = sum(
+                1 for original, corregido in zip(bloques_originales, bloques_finales)
+                if original == corregido
+            )
+
+            total_bloques = len(bloques_originales)
+
+            st.subheader("Resumen por bloques")
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Bloques evaluados", total_bloques)
+            c2.metric("Errores por bloque", cantidad_errores)
+            c3.metric("Bloques recuperados", bloques_correctos)
+            c4.metric("Datos recuperados", len(datos_recuperados))
+
+            st.code(
+                f"Secuencia transmitida: {secuencia_codificada}\n"
+                f"Secuencia recibida:    {secuencia_rx}\n"
+                f"Bloques corregidos:    {bloques_corregidos}\n"
+                f"Datos recuperados:     {datos_recuperados}",
+                language="text",
+            )
+
+            st.subheader("Errores inyectados por bloque")
+            st.dataframe(tabla_inyeccion, width="stretch", hide_index=True)
+
+            st.subheader("Decodificación por síndrome")
+            st.dataframe(tabla_decodificacion, width="stretch", hide_index=True)
+
+            if cantidad_errores == 0:
+                st.success("No se inyectaron errores. Los bloques deberían recuperarse sin corrección.")
+            elif cantidad_errores == 1:
+                st.success(
+                    "Se inyectó un error por bloque. Hamming debería corregir cada bloque de forma adecuada."
+                )
+            else:
+                st.warning(
+                    "Se inyectaron dos errores por bloque. Hamming puede aplicar una corrección incorrecta."
+                )
+
+            st.session_state["guia_04_bloques_resultado"] = {
+                "tx": secuencia_codificada,
+                "rx": secuencia_rx,
+                "corregidos": bloques_corregidos,
+                "datos": datos_recuperados,
+                "errores_por_bloque": cantidad_errores,
+                "bloques": total_bloques,
+                "bloques_correctos": bloques_correctos,
+            }
+
+    # ========================================================
+    # Errores múltiples
+    # ========================================================
+
+    with tabs[4]:
         st.header("Errores múltiples y límite de Hamming")
 
         st.markdown(
             """
-En esta sección se inyectan dos errores dentro de la misma palabra Hamming. El objetivo
-es observar que el código Hamming (7,4) no garantiza corrección adecuada cuando ocurren
-errores múltiples.
+En esta sección se inyectan dos errores dentro de un mismo bloque Hamming. El objetivo
+es observar que Hamming (7,4) no garantiza corrección adecuada cuando ocurren errores
+múltiples.
 """
         )
 
@@ -388,14 +682,13 @@ errores múltiples.
                 key="g4_multi_pos2",
             )
 
-            ejecutar_multi = st.button("Inyectar dos errores", use_container_width=True)
+            ejecutar_multi = st.button("Inyectar dos errores", width="stretch")
 
         with col_info:
             st.warning(
                 """
-Hamming (7,4) está diseñado para corregir un solo error por palabra. Si ocurren dos
-errores, el síndrome puede señalar una posición incorrecta y provocar una corrección
-equivocada.
+Hamming (7,4) corrige un solo error por bloque. Con dos errores, el síndrome puede
+señalar una posición que no corresponde a un único error real.
 """
             )
 
@@ -404,8 +697,8 @@ equivocada.
         elif pos_1 == pos_2:
             st.error("Seleccione dos posiciones distintas.")
         elif ejecutar_multi:
-            palabra_rx = invertir_bit(palabra_multi, pos_1)
-            palabra_rx = invertir_bit(palabra_rx, pos_2)
+            palabra_rx = invertir_bit(palabra_multi, int(pos_1))
+            palabra_rx = invertir_bit(palabra_rx, int(pos_2))
 
             resultado = corregir_hamming(palabra_rx)
             sindrome = resultado["sindrome"]
@@ -422,22 +715,24 @@ equivocada.
             st.code(
                 f"Palabra transmitida: {palabra_multi}\n"
                 f"Palabra recibida:    {palabra_rx}\n"
-                f"Palabra corregida:   {resultado['corregido']}",
+                f"Palabra corregida:   {resultado['corregido']}\n"
+                f"Datos extraídos:     {resultado['datos_extraidos']}",
                 language="text",
             )
 
             c1, c2, c3 = st.columns(3)
             c1.metric("Síndrome", sindrome["sindrome_binario"])
             c2.metric("Posición sugerida", sindrome["posicion_error"])
-            c3.metric("Coincide con original", "Sí" if resultado["corregido"] == palabra_multi else "No")
+            c3.metric(
+                "Coincide con original",
+                "Sí" if resultado["corregido"] == palabra_multi else "No",
+            )
 
             st.subheader("Tabla de comprobaciones")
-
-            st.dataframe(tabla_sindrome, use_container_width=True, hide_index=True)
+            st.dataframe(tabla_sindrome, width="stretch", hide_index=True)
 
             st.subheader("Comparación")
-
-            st.dataframe(tabla_comparacion, use_container_width=True, hide_index=True)
+            st.dataframe(tabla_comparacion, width="stretch", hide_index=True)
 
             if resultado["corregido"] == palabra_multi:
                 st.success(
@@ -459,59 +754,88 @@ adicional, como CRC.
 """
             )
 
-    with tabs[4]:
-        st.header("Análisis de resultados")
+            st.session_state["guia_04_multi_resultado"] = {
+                "tx": palabra_multi,
+                "rx": palabra_rx,
+                "corregido": resultado["corregido"],
+                "sindrome": sindrome["sindrome_binario"],
+                "posicion": sindrome["posicion_error"],
+                "coincide": resultado["corregido"] == palabra_multi,
+            }
+
+    # ========================================================
+    # Análisis y dinámica
+    # ========================================================
+
+    with tabs[5]:
+        st.header("Análisis y dinámica")
 
         st.markdown(
             """
-Analice los resultados obtenidos:
-
-1. ¿Qué representa el síndrome?
-2. ¿Por qué el síndrome puede interpretarse como una posición?
-3. ¿Qué ocurre cuando el síndrome es cero?
-4. ¿Qué ocurre cuando se inyecta un solo error?
-5. ¿Qué ocurre cuando se inyectan dos errores?
-6. ¿Por qué este límite justifica el uso de CRC en una etapa posterior?
+Esta sección integra la interpretación de resultados con ejercicios guiados. El objetivo
+es comprobar que el estudiante comprende el significado del síndrome y los límites del
+código Hamming.
 """
         )
 
-        if "guia_04_ultimo_resultado" in st.session_state:
-            ultimo = st.session_state["guia_04_ultimo_resultado"]
-
-            st.subheader("Último caso de corrección de un bit")
+        if "guia_04_ultimo_bloque" in st.session_state:
+            st.subheader("Última corrección de un bloque")
 
             st.table(
                 pd.DataFrame(
                     [
                         {
-                            "Transmitido": ultimo["tx"],
-                            "Recibido": ultimo["rx"],
-                            "Corregido": ultimo["corregido"],
-                            "Síndrome": ultimo["sindrome"],
-                            "Posición detectada": ultimo["posicion"],
-                            "Datos recuperados": ultimo["datos"],
+                            "Transmitido": st.session_state["guia_04_ultimo_bloque"]["tx"],
+                            "Recibido": st.session_state["guia_04_ultimo_bloque"]["rx"],
+                            "Corregido": st.session_state["guia_04_ultimo_bloque"]["corregido"],
+                            "Síndrome": st.session_state["guia_04_ultimo_bloque"]["sindrome"],
+                            "Posición detectada": st.session_state["guia_04_ultimo_bloque"]["posicion"],
+                            "Datos recuperados": st.session_state["guia_04_ultimo_bloque"]["datos"],
                         }
                     ]
                 )
             )
         else:
-            st.info("Ejecute primero una corrección de un error en la pestaña correspondiente.")
+            st.info("Ejecute primero la corrección de un bloque.")
 
-    with tabs[5]:
-        st.header("Dinámica de aprendizaje")
+        if "guia_04_bloques_resultado" in st.session_state:
+            st.subheader("Última decodificación por bloques")
+
+            resultado_bloques = st.session_state["guia_04_bloques_resultado"]
+
+            st.table(
+                pd.DataFrame(
+                    [
+                        {
+                            "Bloques": resultado_bloques["bloques"],
+                            "Errores por bloque": resultado_bloques["errores_por_bloque"],
+                            "Bloques recuperados": resultado_bloques["bloques_correctos"],
+                            "Datos recuperados": resultado_bloques["datos"],
+                        }
+                    ]
+                )
+            )
+        else:
+            st.info("Ejecute una decodificación por bloques para ver el resumen.")
+
+        st.subheader("Actividades guiadas")
 
         st.markdown(
             """
 Realice las siguientes actividades:
 
 1. Use la palabra Hamming `0110011`.
-2. Inyecte error en la posición 1 y registre el síndrome.
+2. Inyecte un error en la posición 1 y registre el síndrome.
 3. Repita para las posiciones 2, 3, 4, 5, 6 y 7.
 4. Verifique que el síndrome coincide con la posición del error.
-5. Inyecte dos errores y observe si el sistema logra recuperar la palabra original.
-6. Explique por qué Hamming requiere apoyo de un detector más robusto para errores múltiples.
+5. Decodifique una secuencia de dos bloques de 7 bits.
+6. Inyecte un error por bloque y observe la corrección.
+7. Inyecte dos errores por bloque y observe el límite del código.
+8. Explique por qué CRC será necesario en la siguiente etapa.
 """
         )
+
+        st.subheader("Preguntas de análisis")
 
         pregunta_1 = st.radio(
             "Pregunta 1: ¿Qué indica un síndrome distinto de cero?",
@@ -553,7 +877,7 @@ Realice las siguientes actividades:
             "Pregunta 3: ¿Cuál es la principal limitación de Hamming (7,4)?",
             [
                 "No puede transmitir bits.",
-                "No puede corregir de forma confiable errores múltiples.",
+                "No puede corregir de forma confiable errores múltiples dentro del mismo bloque.",
                 "No utiliza bits de paridad.",
                 "No permite construir palabras código.",
             ],
@@ -562,10 +886,50 @@ Realice las siguientes actividades:
         )
 
         if pregunta_3:
-            if pregunta_3 == "No puede corregir de forma confiable errores múltiples.":
-                st.success("Correcto. Hamming (7,4) corrige un error de un bit, pero falla ante errores múltiples.")
+            if pregunta_3 == "No puede corregir de forma confiable errores múltiples dentro del mismo bloque.":
+                st.success("Correcto. Hamming (7,4) corrige un error por bloque, pero falla ante errores múltiples.")
             else:
                 st.error("Revise la capacidad de corrección del código Hamming.")
+
+        pregunta_4 = st.radio(
+            "Pregunta 4: Si una secuencia Hamming tiene 21 bits, ¿cuántos bloques de 7 bits contiene?",
+            [
+                "2 bloques",
+                "3 bloques",
+                "4 bloques",
+                "7 bloques",
+            ],
+            index=None,
+            key="g4_pregunta_4",
+        )
+
+        if pregunta_4:
+            if pregunta_4 == "3 bloques":
+                st.success("Correcto. 21 bits / 7 bits por bloque = 3 bloques.")
+            else:
+                st.error("Divida la longitud total entre 7 bits por bloque.")
+
+        pregunta_5 = st.radio(
+            "Pregunta 5: ¿Por qué CRC complementa a Hamming?",
+            [
+                "Porque CRC corrige todos los errores múltiples.",
+                "Porque CRC permite detectar errores remanentes que Hamming puede no corregir.",
+                "Porque CRC elimina la necesidad de bits de paridad.",
+                "Porque CRC convierte los bits en señal analógica.",
+            ],
+            index=None,
+            key="g4_pregunta_5",
+        )
+
+        if pregunta_5:
+            if pregunta_5 == "Porque CRC permite detectar errores remanentes que Hamming puede no corregir.":
+                st.success("Correcto. CRC detecta errores remanentes, especialmente cuando Hamming falla ante errores múltiples.")
+            else:
+                st.error("Revise la diferencia entre corrección con Hamming y detección con CRC.")
+
+    # ========================================================
+    # Conclusiones
+    # ========================================================
 
     with tabs[6]:
         st.header("Conclusiones")
@@ -575,13 +939,19 @@ Realice las siguientes actividades:
 Al finalizar esta guía, el estudiante debe concluir que:
 
 - el receptor calcula un síndrome a partir de verificaciones de paridad;
-- el síndrome permite localizar errores de un solo bit;
+- el síndrome se interpreta como la posición del error bajo la hipótesis de un único error;
 - la corrección se realiza invirtiendo el bit indicado por el síndrome;
-- Hamming (7,4) permite recuperar los 4 bits de datos si ocurre un solo error;
+- Hamming (7,4) permite recuperar los 4 bits de datos si ocurre un solo error en el bloque;
+- las secuencias largas se decodifican dividiéndolas en bloques de 7 bits;
+- Hamming corrige un error por bloque, no errores múltiples dentro del mismo bloque;
 - cuando ocurren errores múltiples, el síndrome puede inducir una corrección incorrecta;
 - esta limitación justifica la integración posterior de CRC como detector de errores remanentes.
 """
         )
+
+    # ========================================================
+    # Referencias
+    # ========================================================
 
     with tabs[7]:
         st.header("Referencias")
