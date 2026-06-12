@@ -1,21 +1,33 @@
 import math
 from typing import Dict, List, Tuple
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
 
 
 # ============================================================
-# Utilidades generales
+# Validaciones generales
 # ============================================================
 
 def validar_bits(bits: str) -> bool:
+    """
+    Valida que una cadena contenga únicamente bits 0 y 1.
+    """
     return len(bits) > 0 and all(bit in "01" for bit in bits)
 
 
 def validar_generador(generador: str) -> bool:
+    """
+    Valida un generador CRC binario.
+
+    Un generador CRC válido debe:
+    - tener al menos 2 bits;
+    - contener únicamente 0 y 1;
+    - iniciar en 1;
+    - terminar en 1.
+    """
     return (
         len(generador) >= 2
         and all(bit in "01" for bit in generador)
@@ -24,17 +36,61 @@ def validar_generador(generador: str) -> bool:
     )
 
 
+def limpiar_bits(bits: str) -> str:
+    """
+    Limpia espacios y saltos de línea de una secuencia binaria.
+    """
+    return bits.strip().replace(" ", "").replace("\n", "").replace("\t", "")
+
+
 def generar_bits_aleatorios(cantidad: int, semilla: int | None = None) -> str:
+    """
+    Genera una cadena binaria aleatoria reproducible mediante semilla.
+    """
     rng = np.random.default_rng(semilla)
     bits = rng.integers(0, 2, size=cantidad)
     return "".join(str(bit) for bit in bits)
 
 
+def contar_errores_bits(tx: str, rx: str) -> int:
+    """
+    Cuenta errores entre dos cadenas binarias comparando hasta la longitud común.
+    """
+    longitud = min(len(tx), len(rx))
+
+    if longitud == 0:
+        return 0
+
+    return sum(1 for a, b in zip(tx[:longitud], rx[:longitud]) if a != b)
+
+
+def calcular_ber(tx: str, rx: str) -> float:
+    """
+    Calcula BER entre dos secuencias binarias.
+    """
+    longitud = min(len(tx), len(rx))
+
+    if longitud == 0:
+        return 0.0
+
+    return contar_errores_bits(tx, rx) / longitud
+
+
 def dividir_en_bloques(bits: str, tamano: int) -> List[str]:
+    """
+    Divide una secuencia en bloques de tamaño fijo.
+    """
     return [bits[i:i + tamano] for i in range(0, len(bits), tamano)]
 
 
 def rellenar_a_multiplo(bits: str, multiplo: int) -> Tuple[str, int]:
+    """
+    Rellena con ceros hasta que la longitud sea múltiplo del valor indicado.
+
+    Devuelve:
+    - bits con relleno;
+    - cantidad de ceros agregados.
+    """
     residuo = len(bits) % multiplo
 
     if residuo == 0:
@@ -45,121 +101,122 @@ def rellenar_a_multiplo(bits: str, multiplo: int) -> Tuple[str, int]:
 
 
 def quitar_padding(bits: str, padding: int) -> str:
-    if padding == 0:
+    """
+    Elimina bits de relleno agregados al final.
+    """
+    if padding <= 0:
         return bits
+
     return bits[:-padding]
 
 
-def contar_errores(tx: str, rx: str) -> int:
-    longitud = min(len(tx), len(rx))
-    return sum(1 for a, b in zip(tx[:longitud], rx[:longitud]) if a != b)
-
-
-def calcular_ber(tx: str, rx: str) -> float:
-    if len(tx) == 0:
-        return 0.0
-    return contar_errores(tx, rx) / len(tx)
-
-
 # ============================================================
-# CRC
+# Modelo de canal AWGN con BPSK
 # ============================================================
 
-def division_modulo_2(dividendo: str, divisor: str) -> Tuple[str, pd.DataFrame]:
-    trabajo = list(dividendo)
-    divisor_bits = list(divisor)
-    n = len(divisor_bits)
+def bits_a_simbolos_bpsk(bits: str) -> np.ndarray:
+    """
+    Convierte bits a símbolos BPSK normalizados.
 
-    pasos = []
-
-    for i in range(len(dividendo) - n + 1):
-        segmento_antes = "".join(trabajo[i:i + n])
-
-        if trabajo[i] == "1":
-            for j in range(n):
-                trabajo[i + j] = str(int(trabajo[i + j]) ^ int(divisor_bits[j]))
-
-            segmento_despues = "".join(trabajo[i:i + n])
-
-            pasos.append(
-                {
-                    "Paso": len(pasos) + 1,
-                    "Posición": i + 1,
-                    "Segmento antes": segmento_antes,
-                    "Operación": f"{segmento_antes} XOR {divisor}",
-                    "Segmento después": segmento_despues,
-                    "Trama temporal": "".join(trabajo),
-                }
-            )
-        else:
-            pasos.append(
-                {
-                    "Paso": len(pasos) + 1,
-                    "Posición": i + 1,
-                    "Segmento antes": segmento_antes,
-                    "Operación": "No se aplica XOR porque el bit líder es 0",
-                    "Segmento después": segmento_antes,
-                    "Trama temporal": "".join(trabajo),
-                }
-            )
-
-    residuo = "".join(trabajo[-(n - 1):])
-    return residuo, pd.DataFrame(pasos)
+    0 -> -1
+    1 -> +1
+    """
+    bits_array = np.fromiter((int(bit) for bit in bits), dtype=int)
+    return np.where(bits_array == 1, 1.0, -1.0)
 
 
-def generar_crc(datos: str, generador: str) -> Tuple[str, str, pd.DataFrame]:
-    ceros = "0" * (len(generador) - 1)
-    dividendo = datos + ceros
-    residuo, pasos = division_modulo_2(dividendo, generador)
-    trama = datos + residuo
-    return residuo, trama, pasos
+def transmitir_awgn(
+    bits: str,
+    sigma: float,
+    semilla: int | None = None,
+) -> Tuple[str, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Transmite una secuencia binaria por un canal AWGN usando BPSK.
+
+    Modelo:
+
+    r = s + n
+
+    donde:
+    s = símbolo transmitido;
+    n = ruido gaussiano;
+    r = valor recibido.
+
+    Decisión:
+    r >= 0 -> bit 1
+    r < 0  -> bit 0
+    """
+    if len(bits) == 0:
+        return "", np.array([]), np.array([]), np.array([])
+
+    rng = np.random.default_rng(semilla)
+
+    simbolos = bits_a_simbolos_bpsk(bits)
+    ruido = rng.normal(loc=0.0, scale=sigma, size=len(simbolos))
+    recibido = simbolos + ruido
+    bits_rx_array = np.where(recibido >= 0, 1, 0)
+
+    bits_rx = "".join(str(bit) for bit in bits_rx_array)
+
+    return bits_rx, simbolos, ruido, recibido
 
 
-def verificar_crc(trama: str, generador: str) -> Tuple[bool, str, pd.DataFrame]:
-    residuo, pasos = division_modulo_2(trama, generador)
-    valido = all(bit == "0" for bit in residuo)
-    return valido, residuo, pasos
+def calcular_potencias(
+    simbolos: np.ndarray,
+    ruido: np.ndarray,
+) -> Tuple[float, float, float, float]:
+    """
+    Calcula potencia de señal, potencia de ruido, SNR lineal y SNR en dB.
+    """
+    if len(simbolos) == 0 or len(ruido) == 0:
+        return 0.0, 0.0, math.inf, math.inf
+
+    potencia_senal = float(np.mean(simbolos**2))
+    potencia_ruido = float(np.mean(ruido**2))
+
+    if potencia_ruido == 0:
+        return potencia_senal, potencia_ruido, math.inf, math.inf
+
+    snr = potencia_senal / potencia_ruido
+    snr_db = 10 * math.log10(snr)
+
+    return potencia_senal, potencia_ruido, snr, snr_db
 
 
 # ============================================================
 # Hamming (7,4)
-# Estructura: [P1 P2 D1 P4 D2 D3 D4]
+# Estructura usada: [P1 P2 D1 P4 D2 D3 D4]
 # ============================================================
 
-def hamming_encode_4(bits4: str) -> str:
+def hamming_codificar_bloque_4(bits4: str) -> str:
+    """
+    Codifica 4 bits usando Hamming (7,4) con paridad par.
+
+    Entrada:
+    bits4 = D1 D2 D3 D4
+
+    Salida:
+    [P1 P2 D1 P4 D2 D3 D4]
+    """
     d1, d2, d3, d4 = [int(bit) for bit in bits4]
 
     p1 = d1 ^ d2 ^ d4
     p2 = d1 ^ d3 ^ d4
     p4 = d2 ^ d3 ^ d4
 
-    codigo = [p1, p2, d1, p4, d2, d3, d4]
-    return "".join(str(bit) for bit in codigo)
+    return f"{p1}{p2}{d1}{p4}{d2}{d3}{d4}"
 
 
-def hamming_encode_stream(bits: str) -> Tuple[str, int, pd.DataFrame]:
-    bits_rellenados, padding = rellenar_a_multiplo(bits, 4)
-    bloques = dividir_en_bloques(bits_rellenados, 4)
+def hamming_calcular_sindrome(bits7: str) -> Dict[str, int | str]:
+    """
+    Calcula el síndrome de una palabra Hamming (7,4).
 
-    codificados = []
-    filas = []
+    s1 revisa posiciones 1, 3, 5, 7
+    s2 revisa posiciones 2, 3, 6, 7
+    s4 revisa posiciones 4, 5, 6, 7
 
-    for i, bloque in enumerate(bloques, start=1):
-        codigo = hamming_encode_4(bloque)
-        codificados.append(codigo)
-
-        filas.append(
-            {
-                "Bloque": i,
-                "Datos 4 bits": bloque,
-                "Hamming 7 bits": codigo,
-            }
-        )
-
-    return "".join(codificados), padding, pd.DataFrame(filas)
-
-
-def calcular_sindrome_7(bits7: str) -> Dict[str, int | str]:
+    S = (s4 s2 s1)_2
+    """
     b = [int(bit) for bit in bits7]
 
     s1 = b[0] ^ b[2] ^ b[4] ^ b[6]
@@ -177,477 +234,922 @@ def calcular_sindrome_7(bits7: str) -> Dict[str, int | str]:
     }
 
 
-def invertir_bit(bits: str, posicion: int) -> str:
+def hamming_invertir_bit(bits: str, posicion: int) -> str:
+    """
+    Invierte el bit indicado por una posición que inicia en 1.
+    """
     lista = list(bits)
     indice = posicion - 1
     lista[indice] = "1" if lista[indice] == "0" else "0"
     return "".join(lista)
 
 
-def hamming_decode_7(bits7: str) -> Dict[str, object]:
-    sindrome = calcular_sindrome_7(bits7)
-    posicion_error = int(sindrome["posicion_error"])
+def hamming_corregir_bloque_7(bits7: str) -> Tuple[str, str, int, bool]:
+    """
+    Corrige una palabra Hamming (7,4).
 
-    if posicion_error == 0:
-        corregido = bits7
-        corrigio = False
-    else:
-        corregido = invertir_bit(bits7, posicion_error)
-        corrigio = True
+    Devuelve:
+    - bloque corregido;
+    - síndrome;
+    - posición detectada;
+    - si aplicó corrección.
+    """
+    sindrome = hamming_calcular_sindrome(bits7)
+    posicion = int(sindrome["posicion_error"])
 
-    datos = corregido[2] + corregido[4] + corregido[5] + corregido[6]
+    if posicion == 0:
+        return bits7, str(sindrome["sindrome"]), posicion, False
 
-    return {
-        "recibido": bits7,
-        "sindrome": sindrome["sindrome"],
-        "posicion_error": posicion_error,
-        "corregido": corregido,
-        "datos": datos,
-        "corrigio": corrigio,
-    }
+    return hamming_invertir_bit(bits7, posicion), str(sindrome["sindrome"]), posicion, True
 
 
-def hamming_decode_stream(bits_codificados: str) -> Tuple[str, str, pd.DataFrame]:
-    bloques = dividir_en_bloques(bits_codificados, 7)
+def hamming_extraer_datos(bits7: str) -> str:
+    """
+    Extrae D1 D2 D3 D4 desde [P1 P2 D1 P4 D2 D3 D4].
+    """
+    return bits7[2] + bits7[4] + bits7[5] + bits7[6]
 
-    datos_decodificados = []
-    bloques_corregidos = []
+
+def hamming_codificar_stream(bits: str) -> Tuple[str, int, pd.DataFrame]:
+    """
+    Codifica una secuencia binaria completa usando Hamming (7,4) por bloques.
+
+    Si la longitud no es múltiplo de 4, se agregan ceros de relleno.
+    """
+    bits_rellenados, padding = rellenar_a_multiplo(bits, 4)
+    bloques = dividir_en_bloques(bits_rellenados, 4)
+
+    codificados = []
     filas = []
 
     for i, bloque in enumerate(bloques, start=1):
-        if len(bloque) != 7:
+        codigo = hamming_codificar_bloque_4(bloque)
+        codificados.append(codigo)
+
+        if i <= 25:
+            filas.append(
+                {
+                    "Bloque": i,
+                    "Datos": bloque,
+                    "Hamming (7,4)": codigo,
+                }
+            )
+
+    return "".join(codificados), padding, pd.DataFrame(filas)
+
+
+def hamming_decodificar_stream(bits_codificados: str) -> Tuple[str, str, pd.DataFrame]:
+    """
+    Decodifica una secuencia formada por palabras Hamming de 7 bits.
+
+    Devuelve:
+    - datos decodificados con posible padding;
+    - bloques corregidos concatenados;
+    - tabla de primeros bloques.
+    """
+    if len(bits_codificados) % 7 != 0:
+        raise ValueError("La secuencia Hamming recibida debe tener longitud múltiplo de 7.")
+
+    bloques = dividir_en_bloques(bits_codificados, 7)
+
+    datos = []
+    corregidos = []
+    filas = []
+
+    for i, bloque in enumerate(bloques, start=1):
+        corregido, sindrome, posicion, corrigio = hamming_corregir_bloque_7(bloque)
+        datos_extraidos = hamming_extraer_datos(corregido)
+
+        datos.append(datos_extraidos)
+        corregidos.append(corregido)
+
+        if i <= 25:
+            filas.append(
+                {
+                    "Bloque": i,
+                    "Recibido": bloque,
+                    "Síndrome": sindrome,
+                    "Posición detectada": posicion,
+                    "Corrigió": "Sí" if corrigio else "No",
+                    "Corregido": corregido,
+                    "Datos recuperados": datos_extraidos,
+                }
+            )
+
+    return "".join(datos), "".join(corregidos), pd.DataFrame(filas)
+
+
+# ============================================================
+# CRC
+# ============================================================
+
+def binario_a_polinomio(bits: str, variable: str = "x") -> str:
+    """
+    Convierte una cadena binaria en representación polinómica.
+
+    Ejemplo:
+    1011 -> x^3 + x + 1
+    """
+    if not validar_bits(bits):
+        return "Entrada no binaria"
+
+    grado_maximo = len(bits) - 1
+    terminos = []
+
+    for i, bit in enumerate(bits):
+        if bit == "1":
+            grado = grado_maximo - i
+
+            if grado == 0:
+                terminos.append("1")
+            elif grado == 1:
+                terminos.append(variable)
+            else:
+                terminos.append(f"{variable}^{grado}")
+
+    if not terminos:
+        return "0"
+
+    return " + ".join(terminos)
+
+
+def crc_division_modulo_2(dividendo: str, divisor: str) -> Tuple[str, pd.DataFrame]:
+    """
+    División módulo 2 usada por CRC.
+
+    La resta en módulo 2 se implementa mediante XOR.
+    """
+    trabajo = list(dividendo)
+    divisor_bits = list(divisor)
+    n = len(divisor_bits)
+
+    pasos = []
+
+    for i in range(len(dividendo) - n + 1):
+        segmento_antes = "".join(trabajo[i:i + n])
+
+        if trabajo[i] == "1":
+            for j in range(n):
+                trabajo[i + j] = str(int(trabajo[i + j]) ^ int(divisor_bits[j]))
+
+            segmento_despues = "".join(trabajo[i:i + n])
+            operacion = f"{segmento_antes} XOR {divisor}"
+        else:
+            segmento_despues = segmento_antes
+            operacion = "No se aplica XOR porque el bit líder es 0"
+
+        if len(pasos) < 30:
+            pasos.append(
+                {
+                    "Paso": len(pasos) + 1,
+                    "Posición": i + 1,
+                    "Segmento antes": segmento_antes,
+                    "Operación": operacion,
+                    "Segmento después": segmento_despues,
+                    "Trama temporal": "".join(trabajo),
+                }
+            )
+
+    residuo = "".join(trabajo[-(n - 1):])
+    return residuo, pd.DataFrame(pasos)
+
+
+def crc_generar(datos: str, generador: str) -> Tuple[str, str, pd.DataFrame]:
+    """
+    Genera CRC.
+
+    R(x) = M(x)x^r mod G(x)
+    T(x) = M(x)x^r + R(x)
+
+    En binario:
+    t = m || R
+    """
+    r = len(generador) - 1
+    dividendo = datos + ("0" * r)
+    residuo, pasos = crc_division_modulo_2(dividendo, generador)
+    trama = datos + residuo
+
+    return residuo, trama, pasos
+
+
+def crc_verificar(trama: str, generador: str) -> Tuple[bool, str, pd.DataFrame]:
+    """
+    Verifica una trama con CRC.
+
+    Residuo cero:
+    - no se detecta error.
+
+    Residuo distinto de cero:
+    - se detecta error.
+    """
+    residuo, pasos = crc_division_modulo_2(trama, generador)
+    valido = all(bit == "0" for bit in residuo)
+
+    return valido, residuo, pasos
+
+
+def crc_dividir_en_tramas(datos: str, tamano_payload: int) -> Tuple[List[str], int]:
+    """
+    Divide datos en tramas de tamaño fijo.
+
+    Si la última trama queda incompleta, se rellena con ceros.
+    """
+    datos_rellenados, padding = rellenar_a_multiplo(datos, tamano_payload)
+    tramas = dividir_en_bloques(datos_rellenados, tamano_payload)
+
+    return tramas, padding
+
+
+def crc_codificar_stream(
+    datos: str,
+    tamano_payload: int,
+    generador: str,
+) -> Tuple[str, int, int, pd.DataFrame]:
+    """
+    Codifica una secuencia de datos en varias tramas con CRC.
+
+    Devuelve:
+    - flujo completo con CRC;
+    - padding aplicado a los datos;
+    - longitud de cada trama codificada;
+    - tabla de primeras tramas.
+    """
+    tramas, padding = crc_dividir_en_tramas(datos, tamano_payload)
+    flujo = []
+    filas = []
+
+    r = len(generador) - 1
+    longitud_trama = tamano_payload + r
+
+    for i, payload in enumerate(tramas, start=1):
+        residuo, trama_crc, _ = crc_generar(payload, generador)
+        flujo.append(trama_crc)
+
+        if i <= 25:
+            filas.append(
+                {
+                    "Trama": i,
+                    "Datos": payload,
+                    "CRC": residuo,
+                    "Trama con CRC": trama_crc,
+                }
+            )
+
+    return "".join(flujo), padding, longitud_trama, pd.DataFrame(filas)
+
+
+def crc_decodificar_stream(
+    flujo_crc_rx: str,
+    tamano_payload: int,
+    generador: str,
+    longitud_original_datos: int,
+) -> Tuple[str, Dict[str, int | float], pd.DataFrame]:
+    """
+    Verifica un flujo formado por tramas CRC concatenadas.
+
+    Devuelve:
+    - datos recuperados sin padding;
+    - métricas CRC;
+    - tabla de primeras tramas.
+    """
+    r = len(generador) - 1
+    longitud_trama = tamano_payload + r
+
+    tramas = dividir_en_bloques(flujo_crc_rx, longitud_trama)
+
+    datos_recuperados = []
+    filas = []
+
+    tramas_evaluadas = 0
+    tramas_detectadas = 0
+    tramas_validas = 0
+
+    for i, trama in enumerate(tramas, start=1):
+        if len(trama) != longitud_trama:
             continue
 
-        resultado = hamming_decode_7(bloque)
+        tramas_evaluadas += 1
 
-        datos_decodificados.append(str(resultado["datos"]))
-        bloques_corregidos.append(str(resultado["corregido"]))
+        valido, residuo_rx, _ = crc_verificar(trama, generador)
 
-        filas.append(
-            {
-                "Bloque": i,
-                "Recibido": resultado["recibido"],
-                "Síndrome": resultado["sindrome"],
-                "Posición detectada": resultado["posicion_error"],
-                "Corregido": resultado["corregido"],
-                "Datos recuperados": resultado["datos"],
-                "Hamming corrigió": resultado["corrigio"],
-            }
-        )
+        if valido:
+            tramas_validas += 1
+        else:
+            tramas_detectadas += 1
 
-    return "".join(datos_decodificados), "".join(bloques_corregidos), pd.DataFrame(filas)
+        payload_rx = trama[:tamano_payload]
+        datos_recuperados.append(payload_rx)
 
+        if i <= 25:
+            filas.append(
+                {
+                    "Trama": i,
+                    "Trama Rx": trama,
+                    "Payload Rx": payload_rx,
+                    "Residuo verificación": residuo_rx,
+                    "CRC válido": "Sí" if valido else "No",
+                    "Estado": "No se detecta error" if valido else "Error detectado",
+                }
+            )
 
-# ============================================================
-# Canal AWGN con BPSK
-# ============================================================
+    datos_padded_rx = "".join(datos_recuperados)
+    datos_rx = datos_padded_rx[:longitud_original_datos]
 
-def bits_a_simbolos_bpsk(bits: str) -> np.ndarray:
-    bits_array = np.array([int(bit) for bit in bits])
-    return np.where(bits_array == 1, 1.0, -1.0)
+    metricas = {
+        "Tramas CRC evaluadas": tramas_evaluadas,
+        "Tramas válidas CRC": tramas_validas,
+        "Tramas detectadas por CRC": tramas_detectadas,
+        "Tasa de detección sobre tramas evaluadas": (
+            tramas_detectadas / tramas_evaluadas if tramas_evaluadas else 0.0
+        ),
+    }
 
-
-def transmitir_awgn(
-    bits: str,
-    sigma: float,
-    semilla: int | None = None,
-) -> Tuple[str, np.ndarray, np.ndarray, np.ndarray]:
-    rng = np.random.default_rng(semilla)
-
-    simbolos = bits_a_simbolos_bpsk(bits)
-    ruido = rng.normal(loc=0.0, scale=sigma, size=len(simbolos))
-    recibido_analogico = simbolos + ruido
-    bits_decididos = np.where(recibido_analogico >= 0, 1, 0)
-
-    bits_rx = "".join(str(bit) for bit in bits_decididos)
-
-    return bits_rx, simbolos, ruido, recibido_analogico
-
-
-def calcular_potencias(simbolos: np.ndarray, ruido: np.ndarray) -> Tuple[float, float, float, float]:
-    potencia_senal = float(np.mean(simbolos**2))
-    potencia_ruido = float(np.mean(ruido**2))
-
-    if potencia_ruido == 0:
-        snr = math.inf
-        snr_db = math.inf
-    else:
-        snr = potencia_senal / potencia_ruido
-        snr_db = 10 * math.log10(snr)
-
-    return potencia_senal, potencia_ruido, snr, snr_db
+    return datos_rx, metricas, pd.DataFrame(filas)
 
 
 # ============================================================
-# Pipeline completo
-# Mensaje -> CRC -> Hamming -> Canal -> Hamming Rx -> CRC Rx
+# Sistema completo
 # ============================================================
 
-def ejecutar_pipeline_completo(
+def simular_sin_proteccion(
     datos: str,
-    generador_crc: str,
     sigma: float,
-    semilla: int | None = None,
-) -> Dict[str, object]:
-    crc_tx, trama_crc_tx, pasos_crc_tx = generar_crc(datos, generador_crc)
+    semilla: int,
+) -> Tuple[Dict[str, float | int | str], Dict[str, object]]:
+    """
+    Escenario 1: transmisión sin protección.
+    """
+    tx = datos
 
-    hamming_tx, padding, tabla_hamming_tx = hamming_encode_stream(trama_crc_tx)
-
-    hamming_rx, simbolos, ruido, recibido_analogico = transmitir_awgn(
-        hamming_tx,
-        sigma=sigma,
-        semilla=semilla,
-    )
-
-    datos_decodificados_padded, hamming_corregido, tabla_hamming_rx = hamming_decode_stream(hamming_rx)
-    datos_decodificados = quitar_padding(datos_decodificados_padded, padding)
-
-    crc_valido, residuo_rx, pasos_crc_rx = verificar_crc(datos_decodificados, generador_crc)
-
-    longitud_crc = len(generador_crc) - 1
-    datos_recuperados = datos_decodificados[:-longitud_crc] if longitud_crc > 0 else datos_decodificados
-
-    errores_canal_codificado = contar_errores(hamming_tx, hamming_rx)
-    ber_canal_codificado = calcular_ber(hamming_tx, hamming_rx)
-
-    errores_post_hamming = contar_errores(trama_crc_tx, datos_decodificados)
-    ber_post_hamming = calcular_ber(trama_crc_tx, datos_decodificados)
-
-    errores_datos_final = contar_errores(datos, datos_recuperados)
-    ber_datos_final = calcular_ber(datos, datos_recuperados)
+    rx, simbolos, ruido, recibido = transmitir_awgn(tx, sigma=sigma, semilla=semilla)
 
     ps, pn, snr, snr_db = calcular_potencias(simbolos, ruido)
 
-    estado_final = "Aceptada" if crc_valido else "Rechazada por CRC"
+    ber_canal = calcular_ber(tx, rx)
+    ber_final = calcular_ber(datos, rx[:len(datos)])
 
     resumen = {
-        "Datos originales": datos,
-        "CRC Tx": crc_tx,
-        "Trama con CRC": trama_crc_tx,
-        "Padding Hamming": padding,
-        "Hamming Tx": hamming_tx,
-        "Hamming Rx": hamming_rx,
-        "Hamming corregido": hamming_corregido,
-        "Trama recuperada post-Hamming": datos_decodificados,
-        "Datos recuperados": datos_recuperados,
-        "Residuo CRC Rx": residuo_rx,
-        "CRC válido": crc_valido,
-        "Estado final": estado_final,
-        "Errores canal codificado": errores_canal_codificado,
-        "BER canal codificado": ber_canal_codificado,
-        "Errores post-Hamming": errores_post_hamming,
-        "BER post-Hamming": ber_post_hamming,
-        "Errores datos finales": errores_datos_final,
-        "BER datos finales": ber_datos_final,
-        "Potencia señal": ps,
-        "Potencia ruido": pn,
-        "SNR": snr,
+        "Escenario": "Sin protección",
+        "Bits de datos originales": len(datos),
+        "Bits transmitidos por canal": len(tx),
+        "Bits de redundancia": 0,
+        "Factor de expansión": len(tx) / len(datos) if len(datos) else 0,
+        "BER canal": ber_canal,
+        "BER post-Hamming": np.nan,
+        "BER final datos": ber_final,
+        "Errores finales": contar_errores_bits(datos, rx[:len(datos)]),
+        "Tramas detectadas por CRC": 0,
         "SNR dB": snr_db,
         "σ": sigma,
         "σ²": sigma**2,
     }
 
-    return {
-        "resumen": resumen,
-        "tabla_hamming_tx": tabla_hamming_tx,
-        "tabla_hamming_rx": tabla_hamming_rx,
-        "pasos_crc_tx": pasos_crc_tx,
-        "pasos_crc_rx": pasos_crc_rx,
+    detalle = {
+        "tx": tx,
+        "rx": rx,
         "simbolos": simbolos,
         "ruido": ruido,
-        "recibido_analogico": recibido_analogico,
+        "recibido": recibido,
+        "datos_recuperados": rx[:len(datos)],
     }
 
+    return resumen, detalle
 
-# ============================================================
-# Escenarios comparativos
-# ============================================================
 
-def escenario_sin_proteccion(
+def simular_crc_solo(
     datos: str,
-    sigma: float,
-    semilla: int | None = None,
-) -> Dict[str, object]:
-    rx, simbolos, ruido, _ = transmitir_awgn(datos, sigma, semilla)
-
-    errores = contar_errores(datos, rx)
-    ber = calcular_ber(datos, rx)
-
-    _, _, _, snr_db = calcular_potencias(simbolos, ruido)
-
-    return {
-        "Escenario": "Sin protección",
-        "Bits útiles": len(datos),
-        "Bits transmitidos": len(datos),
-        "Errores finales": errores,
-        "BER final": ber,
-        "Estado": "Sin detección ni corrección",
-        "SNR dB": snr_db,
-    }
-
-
-def escenario_crc_solo(
-    datos: str,
+    tamano_payload: int,
     generador: str,
     sigma: float,
-    semilla: int | None = None,
-) -> Dict[str, object]:
-    _, trama_tx, _ = generar_crc(datos, generador)
-    trama_rx, simbolos, ruido, _ = transmitir_awgn(trama_tx, sigma, semilla)
+    semilla: int,
+) -> Tuple[Dict[str, float | int | str], Dict[str, object]]:
+    """
+    Escenario 2: CRC sin Hamming.
 
-    valido, _, _ = verificar_crc(trama_rx, generador)
+    CRC detecta, pero no corrige.
+    """
+    flujo_crc_tx, padding_crc, longitud_trama_crc, tabla_tx = crc_codificar_stream(
+        datos,
+        tamano_payload=tamano_payload,
+        generador=generador,
+    )
 
-    crc_len = len(generador) - 1
-    datos_rx = trama_rx[:-crc_len] if crc_len > 0 else trama_rx
+    flujo_crc_rx, simbolos, ruido, recibido = transmitir_awgn(
+        flujo_crc_tx,
+        sigma=sigma,
+        semilla=semilla,
+    )
 
-    errores = contar_errores(datos, datos_rx)
-    ber = calcular_ber(datos, datos_rx)
+    datos_rx, metricas_crc, tabla_rx = crc_decodificar_stream(
+        flujo_crc_rx,
+        tamano_payload=tamano_payload,
+        generador=generador,
+        longitud_original_datos=len(datos),
+    )
 
-    _, _, _, snr_db = calcular_potencias(simbolos, ruido)
+    ps, pn, snr, snr_db = calcular_potencias(simbolos, ruido)
 
-    return {
+    ber_canal = calcular_ber(flujo_crc_tx, flujo_crc_rx)
+    ber_final = calcular_ber(datos, datos_rx)
+
+    resumen = {
         "Escenario": "CRC solo",
-        "Bits útiles": len(datos),
-        "Bits transmitidos": len(trama_tx),
-        "Errores finales": errores,
-        "BER final": ber,
-        "Estado": "Aceptada" if valido else "Rechazada por CRC",
+        "Bits de datos originales": len(datos),
+        "Bits transmitidos por canal": len(flujo_crc_tx),
+        "Bits de redundancia": len(flujo_crc_tx) - len(datos),
+        "Factor de expansión": len(flujo_crc_tx) / len(datos) if len(datos) else 0,
+        "BER canal": ber_canal,
+        "BER post-Hamming": np.nan,
+        "BER final datos": ber_final,
+        "Errores finales": contar_errores_bits(datos, datos_rx),
+        "Tramas detectadas por CRC": int(metricas_crc["Tramas detectadas por CRC"]),
         "SNR dB": snr_db,
+        "σ": sigma,
+        "σ²": sigma**2,
     }
 
+    detalle = {
+        "tx": flujo_crc_tx,
+        "rx": flujo_crc_rx,
+        "simbolos": simbolos,
+        "ruido": ruido,
+        "recibido": recibido,
+        "datos_recuperados": datos_rx,
+        "tabla_crc_tx": tabla_tx,
+        "tabla_crc_rx": tabla_rx,
+        "metricas_crc": metricas_crc,
+        "padding_crc": padding_crc,
+        "longitud_trama_crc": longitud_trama_crc,
+    }
 
-def escenario_hamming_solo(
+    return resumen, detalle
+
+
+def simular_hamming_solo(
     datos: str,
     sigma: float,
-    semilla: int | None = None,
-) -> Dict[str, object]:
-    hamming_tx, padding, _ = hamming_encode_stream(datos)
-    hamming_rx, simbolos, ruido, _ = transmitir_awgn(hamming_tx, sigma, semilla)
+    semilla: int,
+) -> Tuple[Dict[str, float | int | str], Dict[str, object]]:
+    """
+    Escenario 3: Hamming sin CRC.
 
-    datos_decodificados_padded, _, _ = hamming_decode_stream(hamming_rx)
-    datos_rx = quitar_padding(datos_decodificados_padded, padding)
+    Hamming corrige un error por bloque, pero no verifica con CRC.
+    """
+    hamming_tx, padding_hamming, tabla_hamming_tx = hamming_codificar_stream(datos)
 
-    errores = contar_errores(datos, datos_rx)
-    ber = calcular_ber(datos, datos_rx)
+    hamming_rx, simbolos, ruido, recibido = transmitir_awgn(
+        hamming_tx,
+        sigma=sigma,
+        semilla=semilla,
+    )
 
-    _, _, _, snr_db = calcular_potencias(simbolos, ruido)
+    datos_decodificados_padded, hamming_corregido, tabla_hamming_rx = hamming_decodificar_stream(
+        hamming_rx
+    )
 
-    return {
+    datos_decodificados = quitar_padding(datos_decodificados_padded, padding_hamming)
+    datos_rx = datos_decodificados[:len(datos)]
+
+    ps, pn, snr, snr_db = calcular_potencias(simbolos, ruido)
+
+    ber_canal = calcular_ber(hamming_tx, hamming_rx)
+    ber_post_hamming = calcular_ber(hamming_tx, hamming_corregido)
+    ber_final = calcular_ber(datos, datos_rx)
+
+    resumen = {
         "Escenario": "Hamming solo",
-        "Bits útiles": len(datos),
-        "Bits transmitidos": len(hamming_tx),
-        "Errores finales": errores,
-        "BER final": ber,
-        "Estado": "Corrige 1 bit por bloque",
+        "Bits de datos originales": len(datos),
+        "Bits transmitidos por canal": len(hamming_tx),
+        "Bits de redundancia": len(hamming_tx) - len(datos),
+        "Factor de expansión": len(hamming_tx) / len(datos) if len(datos) else 0,
+        "BER canal": ber_canal,
+        "BER post-Hamming": ber_post_hamming,
+        "BER final datos": ber_final,
+        "Errores finales": contar_errores_bits(datos, datos_rx),
+        "Tramas detectadas por CRC": 0,
         "SNR dB": snr_db,
+        "σ": sigma,
+        "σ²": sigma**2,
     }
 
+    detalle = {
+        "tx": hamming_tx,
+        "rx": hamming_rx,
+        "simbolos": simbolos,
+        "ruido": ruido,
+        "recibido": recibido,
+        "hamming_corregido": hamming_corregido,
+        "datos_recuperados": datos_rx,
+        "tabla_hamming_tx": tabla_hamming_tx,
+        "tabla_hamming_rx": tabla_hamming_rx,
+        "padding_hamming": padding_hamming,
+    }
 
-def escenario_hamming_crc(
+    return resumen, detalle
+
+
+def simular_hamming_crc(
     datos: str,
+    tamano_payload: int,
     generador: str,
     sigma: float,
-    semilla: int | None = None,
-) -> Dict[str, object]:
-    resultado = ejecutar_pipeline_completo(datos, generador, sigma, semilla)
-    resumen = resultado["resumen"]
+    semilla: int,
+) -> Tuple[Dict[str, float | int | str], Dict[str, object]]:
+    """
+    Escenario 4: sistema integrado CRC + Hamming.
 
-    return {
+    Flujo:
+    datos -> CRC -> Hamming -> canal -> Hamming Rx -> CRC Rx
+    """
+    flujo_crc_tx, padding_crc, longitud_trama_crc, tabla_crc_tx = crc_codificar_stream(
+        datos,
+        tamano_payload=tamano_payload,
+        generador=generador,
+    )
+
+    hamming_tx, padding_hamming, tabla_hamming_tx = hamming_codificar_stream(flujo_crc_tx)
+
+    hamming_rx, simbolos, ruido, recibido = transmitir_awgn(
+        hamming_tx,
+        sigma=sigma,
+        semilla=semilla,
+    )
+
+    crc_decodificado_padded, hamming_corregido, tabla_hamming_rx = hamming_decodificar_stream(
+        hamming_rx
+    )
+
+    flujo_crc_rx = quitar_padding(crc_decodificado_padded, padding_hamming)
+    flujo_crc_rx = flujo_crc_rx[:len(flujo_crc_tx)]
+
+    datos_rx, metricas_crc, tabla_crc_rx = crc_decodificar_stream(
+        flujo_crc_rx,
+        tamano_payload=tamano_payload,
+        generador=generador,
+        longitud_original_datos=len(datos),
+    )
+
+    ps, pn, snr, snr_db = calcular_potencias(simbolos, ruido)
+
+    ber_canal = calcular_ber(hamming_tx, hamming_rx)
+    ber_post_hamming = calcular_ber(flujo_crc_tx, flujo_crc_rx)
+    ber_final = calcular_ber(datos, datos_rx)
+
+    resumen = {
         "Escenario": "Hamming + CRC",
-        "Bits útiles": len(datos),
-        "Bits transmitidos": len(resumen["Hamming Tx"]),
-        "Errores finales": resumen["Errores datos finales"],
-        "BER final": resumen["BER datos finales"],
-        "Estado": resumen["Estado final"],
-        "SNR dB": resumen["SNR dB"],
+        "Bits de datos originales": len(datos),
+        "Bits transmitidos por canal": len(hamming_tx),
+        "Bits de redundancia": len(hamming_tx) - len(datos),
+        "Factor de expansión": len(hamming_tx) / len(datos) if len(datos) else 0,
+        "BER canal": ber_canal,
+        "BER post-Hamming": ber_post_hamming,
+        "BER final datos": ber_final,
+        "Errores finales": contar_errores_bits(datos, datos_rx),
+        "Tramas detectadas por CRC": int(metricas_crc["Tramas detectadas por CRC"]),
+        "SNR dB": snr_db,
+        "σ": sigma,
+        "σ²": sigma**2,
     }
 
+    detalle = {
+        "tx": hamming_tx,
+        "rx": hamming_rx,
+        "simbolos": simbolos,
+        "ruido": ruido,
+        "recibido": recibido,
+        "hamming_corregido": hamming_corregido,
+        "flujo_crc_tx": flujo_crc_tx,
+        "flujo_crc_rx": flujo_crc_rx,
+        "datos_recuperados": datos_rx,
+        "tabla_crc_tx": tabla_crc_tx,
+        "tabla_crc_rx": tabla_crc_rx,
+        "tabla_hamming_tx": tabla_hamming_tx,
+        "tabla_hamming_rx": tabla_hamming_rx,
+        "metricas_crc": metricas_crc,
+        "padding_crc": padding_crc,
+        "padding_hamming": padding_hamming,
+        "longitud_trama_crc": longitud_trama_crc,
+    }
 
-def comparar_escenarios(
+    return resumen, detalle
+
+
+def simular_todos_los_escenarios(
     datos: str,
+    tamano_payload: int,
     generador: str,
     sigma: float,
-    semilla: int | None = None,
-) -> pd.DataFrame:
-    semillas = {
-        "sin": None if semilla is None else semilla + 1,
-        "crc": None if semilla is None else semilla + 2,
-        "hamming": None if semilla is None else semilla + 3,
-        "hamming_crc": None if semilla is None else semilla + 4,
-    }
+    semilla: int,
+) -> Tuple[pd.DataFrame, Dict[str, Dict[str, object]]]:
+    """
+    Ejecuta los cuatro escenarios:
 
-    filas = [
-        escenario_sin_proteccion(datos, sigma, semillas["sin"]),
-        escenario_crc_solo(datos, generador, sigma, semillas["crc"]),
-        escenario_hamming_solo(datos, sigma, semillas["hamming"]),
-        escenario_hamming_crc(datos, generador, sigma, semillas["hamming_crc"]),
-    ]
+    1. Sin protección
+    2. CRC solo
+    3. Hamming solo
+    4. Hamming + CRC
+    """
+    resultados = []
+    detalles = {}
 
-    return pd.DataFrame(filas)
+    resumen_sin, detalle_sin = simular_sin_proteccion(datos, sigma, semilla + 1)
+    resultados.append(resumen_sin)
+    detalles["Sin protección"] = detalle_sin
+
+    resumen_crc, detalle_crc = simular_crc_solo(
+        datos,
+        tamano_payload=tamano_payload,
+        generador=generador,
+        sigma=sigma,
+        semilla=semilla + 2,
+    )
+    resultados.append(resumen_crc)
+    detalles["CRC solo"] = detalle_crc
+
+    resumen_hamming, detalle_hamming = simular_hamming_solo(
+        datos,
+        sigma=sigma,
+        semilla=semilla + 3,
+    )
+    resultados.append(resumen_hamming)
+    detalles["Hamming solo"] = detalle_hamming
+
+    resumen_integrado, detalle_integrado = simular_hamming_crc(
+        datos,
+        tamano_payload=tamano_payload,
+        generador=generador,
+        sigma=sigma,
+        semilla=semilla + 4,
+    )
+    resultados.append(resumen_integrado)
+    detalles["Hamming + CRC"] = detalle_integrado
+
+    df = pd.DataFrame(resultados)
+
+    return df, detalles
 
 
-def comparar_sigmas_sistema_completo(
+def comparar_por_sigma(
     cantidad_bits: int,
+    tamano_payload: int,
     generador: str,
     valores_sigma: List[float],
-    semilla: int | None = None,
+    semilla: int,
 ) -> pd.DataFrame:
+    """
+    Ejecuta el sistema completo Hamming + CRC para varios valores de sigma.
+    """
+    datos = generar_bits_aleatorios(cantidad_bits, semilla=semilla)
+
     filas = []
 
     for i, sigma in enumerate(valores_sigma):
-        semilla_escenario = None if semilla is None else semilla + (1000 * i)
-        datos = generar_bits_aleatorios(cantidad_bits, semilla_escenario)
-
-        resultado = escenario_hamming_crc(
-            datos=datos,
+        resumen, _ = simular_hamming_crc(
+            datos,
+            tamano_payload=tamano_payload,
             generador=generador,
             sigma=sigma,
-            semilla=semilla_escenario,
+            semilla=semilla + (1000 * (i + 1)),
         )
 
-        resultado["σ"] = sigma
-        resultado["σ²"] = sigma**2
-
-        filas.append(resultado)
+        filas.append(resumen)
 
     return pd.DataFrame(filas)
 
 
 # ============================================================
-# Gráficas discretas y semilogarítmicas
+# Tablas teóricas
 # ============================================================
 
-def graficar_bits_discretos(tx: str, rx: str, titulo: str, max_muestras: int = 120):
-    n = min(len(tx), len(rx), max_muestras)
-
-    posiciones = np.arange(1, n + 1)
-    tx_array = np.array([int(bit) for bit in tx[:n]])
-    rx_array = np.array([int(bit) for bit in rx[:n]])
-
-    fig, ax = plt.subplots(figsize=(10, 3))
-
-    ax.stem(
-        posiciones,
-        tx_array,
-        linefmt="C0-",
-        markerfmt="C0o",
-        basefmt=" ",
-        label="Transmitido",
+def construir_tabla_flujo_sistema() -> pd.DataFrame:
+    """
+    Tabla del flujo completo del sistema integrado.
+    """
+    return pd.DataFrame(
+        {
+            "Etapa": [
+                "1. Datos originales",
+                "2. CRC en transmisor",
+                "3. Hamming en transmisor",
+                "4. Canal con ruido",
+                "5. Hamming en receptor",
+                "6. CRC en receptor",
+                "7. Datos finales",
+            ],
+            "Operación": [
+                "Se genera o ingresa la secuencia de bits",
+                "Se calcula R(x) y se forma t = m || R",
+                "Se agregan bits de paridad Hamming por bloques de 4 bits",
+                "Se transmite usando BPSK y ruido AWGN",
+                "Se calcula síndrome y se corrige un error por bloque",
+                "Se verifica el residuo CRC de cada trama",
+                "Se comparan los datos recuperados con los originales",
+            ],
+            "Propósito": [
+                "Definir la información útil",
+                "Agregar detección de errores",
+                "Agregar corrección de errores simples",
+                "Modelar errores de transmisión",
+                "Reducir errores antes de verificar CRC",
+                "Detectar errores remanentes",
+                "Medir desempeño final",
+            ],
+        }
     )
 
-    ax.scatter(
-        posiciones,
-        rx_array,
-        marker="x",
-        label="Recibido / corregido",
+
+def construir_tabla_comparacion_teorica() -> pd.DataFrame:
+    """
+    Tabla conceptual de escenarios.
+    """
+    return pd.DataFrame(
+        {
+            "Escenario": [
+                "Sin protección",
+                "CRC solo",
+                "Hamming solo",
+                "Hamming + CRC",
+            ],
+            "Qué agrega": [
+                "Nada",
+                "Residuo CRC",
+                "Bits de paridad Hamming",
+                "CRC + paridad Hamming",
+            ],
+            "Qué puede hacer": [
+                "No detecta ni corrige",
+                "Detecta errores",
+                "Corrige un error por bloque",
+                "Corrige errores simples y detecta remanentes",
+            ],
+            "Limitación": [
+                "Los errores llegan directamente a los datos",
+                "No corrige",
+                "Puede fallar ante errores múltiples",
+                "Aumenta la redundancia y no garantiza detección absoluta",
+            ],
+        }
     )
 
-    ax.set_title(titulo)
-    ax.set_xlabel("Índice de bit")
-    ax.set_ylabel("Valor del bit")
-    ax.set_yticks([0, 1])
-    ax.grid(True)
-    ax.legend()
 
-    st.pyplot(fig)
+def construir_tabla_metricas() -> pd.DataFrame:
+    """
+    Tabla de métricas usadas en la Guía 6.
+    """
+    return pd.DataFrame(
+        {
+            "Métrica": [
+                "BER canal",
+                "BER post-Hamming",
+                "BER final datos",
+                "SNR",
+                "Factor de expansión",
+                "Tramas detectadas por CRC",
+            ],
+            "Qué mide": [
+                "Errores producidos directamente por el canal",
+                "Errores que quedan después de corrección Hamming",
+                "Errores finales en los datos útiles recuperados",
+                "Relación entre potencia de señal y potencia de ruido",
+                "Cuántos bits se transmiten respecto a los datos originales",
+                "Cantidad de tramas marcadas como alteradas por CRC",
+            ],
+            "Interpretación": [
+                "Mide el daño del canal",
+                "Mide la mejora por Hamming",
+                "Mide la calidad final para el usuario",
+                "A mayor SNR, se espera menor BER",
+                "Mayor protección implica mayor redundancia",
+                "Mayor detección no significa corrección",
+            ],
+        }
+    )
 
 
-def graficar_senal_discreta(simbolos: np.ndarray, ruido: np.ndarray, recibido: np.ndarray, max_muestras: int = 120):
-    n = min(len(simbolos), max_muestras)
+# ============================================================
+# Gráficas
+# ============================================================
 
-    posiciones = np.arange(1, n + 1)
+def graficar_muestras_discretas(detalle: Dict[str, object], max_muestras: int = 40) -> None:
+    """
+    Grafica bits/símbolos y valores recibidos para una cantidad limitada de muestras.
+    """
+    tx = str(detalle["tx"])[:max_muestras]
+    rx = str(detalle["rx"])[:max_muestras]
+
+    simbolos = np.array(detalle["simbolos"][:max_muestras])
+    ruido = np.array(detalle["ruido"][:max_muestras])
+    recibido = np.array(detalle["recibido"][:max_muestras])
+
+    posiciones = np.arange(1, len(tx) + 1)
 
     fig, ax = plt.subplots(figsize=(10, 4))
-
-    ax.stem(
-        posiciones,
-        simbolos[:n],
-        linefmt="C0-",
-        markerfmt="C0o",
-        basefmt=" ",
-        label="Símbolo transmitido",
-    )
-
-    ax.scatter(
-        posiciones,
-        recibido[:n],
-        marker="x",
-        label="Valor recibido",
-    )
-
-    ax.axhline(0, linestyle="--", linewidth=1, label="Umbral")
-
-    ax.set_title("Símbolos y valores recibidos por muestra")
+    ax.stem(posiciones, simbolos, basefmt=" ", label="Símbolo transmitido")
+    ax.scatter(posiciones, recibido, marker="x", label="Valor recibido")
+    ax.axhline(0, linestyle="--", linewidth=1, label="Umbral de decisión")
+    ax.set_title("Símbolos transmitidos y valores recibidos por muestra")
     ax.set_xlabel("Índice de muestra")
     ax.set_ylabel("Amplitud")
     ax.grid(True)
     ax.legend()
-
     st.pyplot(fig)
+    plt.close(fig)
 
     fig_ruido, ax_ruido = plt.subplots(figsize=(10, 3))
-
-    ax_ruido.stem(
-        posiciones,
-        ruido[:n],
-        linefmt="C1-",
-        markerfmt="C1o",
-        basefmt=" ",
-    )
-
+    ax_ruido.stem(posiciones, ruido, basefmt=" ")
     ax_ruido.axhline(0, linestyle="--", linewidth=1)
-
     ax_ruido.set_title("Ruido gaussiano por muestra")
     ax_ruido.set_xlabel("Índice de muestra")
     ax_ruido.set_ylabel("Ruido")
     ax_ruido.grid(True)
-
     st.pyplot(fig_ruido)
+    plt.close(fig_ruido)
+
+    tabla = pd.DataFrame(
+        {
+            "Muestra": posiciones,
+            "Bit Tx": list(tx),
+            "Bit Rx": list(rx),
+            "Estado": ["Correcto" if a == b else "Error" for a, b in zip(tx, rx)],
+        }
+    )
+
+    st.dataframe(tabla, use_container_width=True, hide_index=True)
 
 
-def graficar_ber_escenarios(df: pd.DataFrame):
+def graficar_comparacion_ber(df: pd.DataFrame) -> None:
+    """
+    Grafica BER final por escenario en escala logarítmica.
+    """
     df_plot = df.copy()
-    df_plot["BER ajustado"] = df_plot["BER final"].replace(0, 1e-6)
+    df_plot["BER ajustado"] = df_plot["BER final datos"].replace(0, 1e-6)
 
     fig, ax = plt.subplots(figsize=(9, 4))
     ax.bar(df_plot["Escenario"], df_plot["BER ajustado"])
     ax.set_yscale("log")
-
-    ax.set_title("BER final por escenario")
+    ax.set_title("BER final de datos por escenario")
     ax.set_xlabel("Escenario")
     ax.set_ylabel("BER en escala logarítmica")
     ax.grid(True, which="both", axis="y")
-
     plt.xticks(rotation=20)
     st.pyplot(fig)
+    plt.close(fig)
 
 
-def graficar_ber_vs_sigma(df: pd.DataFrame):
+def graficar_expansion(df: pd.DataFrame) -> None:
+    """
+    Grafica factor de expansión por escenario.
+    """
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.bar(df["Escenario"], df["Factor de expansión"])
+    ax.set_title("Factor de expansión por escenario")
+    ax.set_xlabel("Escenario")
+    ax.set_ylabel("Bits transmitidos / bits originales")
+    ax.grid(True, axis="y")
+    plt.xticks(rotation=20)
+    st.pyplot(fig)
+    plt.close(fig)
+
+
+def graficar_ber_vs_sigma(df: pd.DataFrame) -> None:
+    """
+    Grafica BER final vs sigma para el sistema integrado.
+    """
     df_plot = df.copy()
-    df_plot["BER ajustado"] = df_plot["BER final"].replace(0, 1e-6)
+    df_plot["BER ajustado"] = df_plot["BER final datos"].replace(0, 1e-6)
 
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.semilogy(df_plot["σ"], df_plot["BER ajustado"], marker="o")
-
-    ax.set_title("BER final vs σ para Hamming + CRC")
-    ax.set_xlabel("Desviación estándar σ")
+    ax.set_title("Sistema Hamming + CRC: BER final vs σ")
+    ax.set_xlabel("Desviación estándar del ruido σ")
     ax.set_ylabel("BER final en escala logarítmica")
     ax.grid(True, which="both")
-
     st.pyplot(fig)
+    plt.close(fig)
 
 
-def graficar_bits_transmitidos(df: pd.DataFrame):
-    fig, ax = plt.subplots(figsize=(9, 4))
-    ax.bar(df["Escenario"], df["Bits transmitidos"])
+def graficar_ber_vs_snr(df: pd.DataFrame) -> None:
+    """
+    Grafica BER final vs SNR dB para el sistema integrado.
+    """
+    df_plot = df.copy()
+    df_plot = df_plot.replace([np.inf, -np.inf], np.nan).dropna(subset=["SNR dB"])
+    df_plot["BER ajustado"] = df_plot["BER final datos"].replace(0, 1e-6)
 
-    ax.set_title("Bits transmitidos por escenario")
-    ax.set_xlabel("Escenario")
-    ax.set_ylabel("Bits transmitidos")
-    ax.grid(True, axis="y")
+    if df_plot.empty:
+        st.info("No hay valores finitos de SNR para graficar.")
+        return
 
-    plt.xticks(rotation=20)
+    df_plot = df_plot.sort_values("SNR dB")
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.semilogy(df_plot["SNR dB"], df_plot["BER ajustado"], marker="o")
+    ax.set_title("Sistema Hamming + CRC: BER final vs SNR dB")
+    ax.set_xlabel("SNR dB")
+    ax.set_ylabel("BER final en escala logarítmica")
+    ax.grid(True, which="both")
     st.pyplot(fig)
+    plt.close(fig)
 
 
 # ============================================================
@@ -655,17 +1157,25 @@ def graficar_bits_transmitidos(df: pd.DataFrame):
 # ============================================================
 
 def render_guia_06() -> None:
-    st.title("Guía 6: Sistema completo Hamming + CRC y comparación de desempeño")
+    st.title("Guía 6: Sistema completo Hamming + CRC")
 
     st.markdown(
         """
-Esta guía integra los elementos desarrollados en las guías anteriores: ruido, BER,
-SNR, Hamming, síndrome y CRC. El objetivo es evaluar el desempeño de un sistema
-completo de transmisión digital que utiliza corrección de errores mediante Hamming
-y detección final mediante CRC.
+Esta guía integra los elementos estudiados en las guías anteriores: canal con ruido,
+BER, SNR, codificación Hamming, cálculo del síndrome y verificación CRC.
 
-Las señales y tramas se representan de manera discreta, mientras que las curvas de
-desempeño se presentan en escala semilogarítmica cuando se analiza BER.
+El objetivo es analizar un sistema digital completo que no solo transmite bits por un
+canal ruidoso, sino que también aplica mecanismos de control de errores para mejorar
+la confiabilidad. El flujo general usado en esta guía es:
+
+```text
+Datos → CRC → Hamming → Canal con ruido → Hamming Rx → CRC Rx → Datos recuperados
+```
+
+Hamming se usa como mecanismo de corrección de errores simples, mientras que CRC se usa
+como mecanismo de detección de errores remanentes. Esta combinación permite estudiar
+la relación entre redundancia, corrección, detección y desempeño estadístico del sistema
+(Hamming, 1950; Lin & Costello, 2004; Forouzan, 2013; Stallings, 2015).
 """
     )
 
@@ -673,18 +1183,14 @@ desempeño se presentan en escala semilogarítmica cuando se analiza BER.
         [
             "Objetivos",
             "Teoría",
-            "Sistema completo",
-            "Comparación",
-            "Estadística final",
+            "Flujo del sistema",
+            "Simulación interactiva",
+            "Comparación estadística",
             "Análisis y dinámica",
             "Conclusiones",
             "Referencias",
         ]
     )
-
-    # ========================================================
-    # Objetivos
-    # ========================================================
 
     with tabs[0]:
         st.header("Objetivos")
@@ -693,118 +1199,316 @@ desempeño se presentan en escala semilogarítmica cuando se analiza BER.
             """
 **Objetivo general**
 
-Evaluar el desempeño de un sistema de comunicación digital que integra CRC, Hamming,
-canal con ruido y verificación final mediante métricas estadísticas.
+Integrar Hamming (7,4), CRC y un canal con ruido gaussiano para evaluar el desempeño
+de un sistema digital con mecanismos de detección y corrección de errores.
 
 **Objetivos específicos**
 
-1. Implementar el flujo completo: mensaje, CRC, Hamming, canal, corrección y verificación.
-2. Observar el efecto del ruido sobre la trama codificada.
-3. Calcular BER antes y después de la corrección.
-4. Verificar la detección de errores remanentes mediante CRC.
-5. Comparar escenarios sin protección, con CRC, con Hamming y con Hamming + CRC.
-6. Analizar el impacto de la desviación estándar del ruido sobre el desempeño.
-7. Representar bits y muestras de forma discreta.
-8. Usar gráficas semilogarítmicas para comparar BER.
+1. Comprender el flujo completo de transmisión y recepción.
+2. Aplicar CRC para agregar capacidad de detección de errores.
+3. Aplicar Hamming (7,4) para corregir errores simples.
+4. Simular un canal AWGN usando modulación BPSK normalizada.
+5. Calcular BER del canal, BER post-Hamming y BER final.
+6. Comparar escenarios con y sin protección.
+7. Analizar el costo de redundancia agregado por CRC y Hamming.
+8. Interpretar el efecto de la SNR y de la varianza del ruido sobre el BER.
+9. Evaluar el sistema con muchos bits para obtener resultados estadísticos.
+10. Relacionar los resultados de la app con la teoría de control de errores.
 """
         )
-
-    # ========================================================
-    # Teoría
-    # ========================================================
 
     with tabs[1]:
         st.header("Fundamentación teórica")
 
         st.markdown(
             """
-En un sistema digital real, el control de errores no depende de una sola técnica. Es
-frecuente combinar mecanismos de corrección y detección para mejorar la confiabilidad.
+En comunicaciones digitales, el objetivo no es únicamente enviar bits, sino recuperar
+la información con la menor cantidad posible de errores. Cuando una señal digital atraviesa
+un canal físico, puede ser afectada por ruido, interferencias y distorsiones. Para estudiar
+ese fenómeno de forma controlada, en esta app se usa un canal AWGN, es decir, ruido blanco
+gaussiano aditivo (Forouzan, 2013; Proakis & Salehi, 2008).
 
-En esta guía se utiliza el siguiente flujo:
-
-$$
-Mensaje \\rightarrow CRC \\rightarrow Hamming \\rightarrow Canal \\rightarrow Hamming^{-1} \\rightarrow CRC^{-1}
-$$
-
-El CRC se aplica primero para agregar un residuo de detección al mensaje. Luego, la
-secuencia resultante se divide en bloques de 4 bits y se codifica con Hamming (7,4).
-
-Después de pasar por el canal con ruido, el receptor aplica el síndrome de Hamming para
-corregir errores de un bit por bloque. Finalmente, el CRC verifica si la información
-recuperada contiene errores remanentes.
-
-El canal se modela mediante:
+El modelo de canal utilizado es:
 
 $$
 r = s + n
 $$
 
-donde el ruido se considera gaussiano:
+donde:
+
+- $s$ es el símbolo transmitido;
+- $n$ es el ruido gaussiano;
+- $r$ es el valor recibido.
+
+Para representar bits se usa BPSK normalizado:
 
 $$
-n \\sim \\mathcal{N}(0, \\sigma^2)
+0 \\rightarrow -1
 $$
 
-Para medir el desempeño se utilizan:
+$$
+1 \\rightarrow +1
+$$
+
+El receptor decide usando un umbral en cero:
+
+- si $r \\geq 0$, decide 1;
+- si $r < 0$, decide 0.
+
+Este modelo permite observar cómo el ruido puede desplazar una muestra hacia el lado
+incorrecto del umbral y producir errores de bit.
+"""
+        )
+
+        st.subheader("Hamming como corrección de errores")
+
+        st.markdown(
+            """
+Hamming (7,4) es un código de bloque que toma 4 bits de datos y agrega 3 bits de paridad
+para formar una palabra de 7 bits. En esta app se usa la estructura:
+
+```text
+[P1 P2 D1 P4 D2 D3 D4]
+```
+
+En el receptor, las comprobaciones de paridad forman un síndrome. Si el síndrome es
+distinto de cero, su valor decimal indica la posición del error bajo la hipótesis de
+que ocurrió un solo error en el bloque (Hamming, 1950; Lin & Costello, 2004).
+
+Por tanto, Hamming (7,4):
+
+- corrige un error por bloque;
+- mejora la confiabilidad cuando los errores son aislados;
+- puede fallar ante errores múltiples dentro del mismo bloque.
+
+Esta limitación es importante porque justifica la integración de CRC.
+"""
+        )
+
+        st.subheader("CRC como detección de errores remanentes")
+
+        st.markdown(
+            """
+CRC es una técnica de detección de errores basada en división módulo 2. El transmisor
+calcula un residuo $R(x)$ a partir de un mensaje $M(x)$ y un generador $G(x)$:
 
 $$
-BER = \\frac{N_e}{N_t}
+R(x) = M(x)x^r \\bmod G(x)
 $$
+
+Luego construye la trama:
+
+$$
+T(x) = M(x)x^r + R(x)
+$$
+
+En forma binaria:
+
+$$
+t = m || R
+$$
+
+donde $||$ significa concatenación.
+
+En el receptor, la trama recibida se divide entre el mismo generador. Si el residuo es
+distinto de cero, se detecta error. Si el residuo es cero, se dice que no se detecta
+error, pero no se garantiza de forma absoluta que no haya existido alteración
+(Forouzan, 2013; Stallings, 2015; Tanenbaum & Wetherall, 2011).
+"""
+        )
+
+        st.subheader("Sistema integrado Hamming + CRC")
+
+        st.markdown(
+            """
+En esta guía, CRC se aplica primero y Hamming después:
+
+```text
+Datos → CRC → Hamming
+```
+
+Esto significa que Hamming protege tanto los datos como los bits CRC. Luego, en el receptor,
+se invierte el proceso:
+
+```text
+Hamming Rx → CRC Rx
+```
+
+La razón de este orden es la siguiente:
+
+1. CRC agrega una verificación de integridad a la información.
+2. Hamming protege la trama resultante frente a errores simples del canal.
+3. Al recibir, Hamming intenta corregir errores de un bit por bloque.
+4. Después, CRC verifica si todavía quedan errores remanentes.
+
+Esta arquitectura es didácticamente útil porque permite observar dos funciones distintas:
+
+- Hamming corrige;
+- CRC detecta.
+
+Ambos mecanismos agregan redundancia, por lo que mejoran la confiabilidad pero aumentan
+la cantidad de bits transmitidos (Lin & Costello, 2004; Stallings, 2015).
+"""
+        )
+
+        st.subheader("Métricas de desempeño")
+
+        st.markdown(
+            """
+Para evaluar el sistema se usan varias métricas.
+
+La tasa de error de bit, o BER, se define como:
+
+$$
+BER = \\frac{\\text{bits erróneos}}{\\text{bits transmitidos}}
+$$
+
+La razón señal-ruido se define como:
 
 $$
 SNR = \\frac{P_s}{P_n}
 $$
 
-La función de cada etapa es:
+donde:
 
-| Etapa | Función |
-|---|---|
-| CRC Tx | Agrega redundancia para detección |
-| Hamming Tx | Agrega redundancia para corrección |
-| Canal | Introduce ruido y posibles errores |
-| Hamming Rx | Corrige un error por bloque |
-| CRC Rx | Detecta errores remanentes |
+- $P_s$ es la potencia promedio de la señal;
+- $P_n$ es la potencia promedio del ruido.
 
-La mejora del sistema debe evaluarse no solo por reducción de BER, sino también por el
-costo de redundancia, es decir, por el aumento en los bits transmitidos.
+En dB:
+
+$$
+SNR_{dB} = 10 \\log_{10}(SNR)
+$$
+
+También se analiza el factor de expansión:
+
+$$
+\\text{Factor de expansión} =
+\\frac{\\text{bits transmitidos por el canal}}{\\text{bits de datos originales}}
+$$
+
+Este factor permite observar el costo de redundancia. Un sistema con mayor protección
+transmite más bits, pero puede reducir la cantidad de errores finales (Proakis & Salehi,
+2008; Lin & Costello, 2004).
 """
+        )
+
+        st.dataframe(
+            construir_tabla_metricas(),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with tabs[2]:
+        st.header("Flujo del sistema integrado")
+
+        st.markdown(
+            """
+La siguiente tabla resume el flujo completo implementado en la app. Esta guía une los
+conceptos de las guías anteriores en una sola cadena de transmisión y recepción.
+"""
+        )
+
+        st.dataframe(
+            construir_tabla_flujo_sistema(),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.subheader("Comparación conceptual de escenarios")
+
+        st.markdown(
+            """
+Para comprender el aporte de cada mecanismo, la app compara cuatro escenarios:
+
+1. Sin protección.
+2. CRC solo.
+3. Hamming solo.
+4. Hamming + CRC.
+
+Esta comparación permite observar no solo el BER final, sino también el costo de
+redundancia.
+"""
+        )
+
+        st.dataframe(
+            construir_tabla_comparacion_teorica(),
+            use_container_width=True,
+            hide_index=True,
         )
 
         st.info(
             """
-Idea central: Hamming corrige errores simples por bloque, mientras que CRC permite
-detectar errores que Hamming no logró corregir correctamente.
+La combinación Hamming + CRC no significa que el sistema sea perfecto. Significa que
+se agregan dos niveles de protección: primero corrección de errores simples mediante
+Hamming y luego detección de errores remanentes mediante CRC.
 """
         )
 
-    # ========================================================
-    # Sistema completo
-    # ========================================================
-
-    with tabs[2]:
-        st.header("Flujo completo Hamming + CRC")
+    with tabs[3]:
+        st.header("Simulación interactiva del sistema completo")
 
         st.markdown(
             """
-En esta sección se ejecuta el flujo completo para un mensaje binario. La aplicación
-muestra las etapas del transmisor, canal y receptor.
+En esta sección se ejecuta una simulación completa. El estudiante puede usar un mensaje
+manual o generar bits aleatorios. Luego se comparan cuatro escenarios de protección.
+
+Para evitar errores de memoria o tiempos excesivos, las tablas muestran únicamente las
+primeras tramas o bloques, aunque las métricas se calculan sobre todos los bits simulados.
 """
         )
 
         col_param, col_info = st.columns([1, 1])
 
         with col_param:
-            datos = st.text_input(
-                "Mensaje binario",
-                value="101100111001",
-                key="g6_datos_flujo",
-            ).strip()
+            modo = st.radio(
+                "Modo de entrada",
+                ["Mensaje manual", "Bits aleatorios"],
+                key="g6_modo_entrada",
+            )
 
-            generador = st.text_input(
+            if modo == "Mensaje manual":
+                datos = st.text_area(
+                    "Datos binarios",
+                    value="1011001110001111",
+                    key="g6_datos_manual",
+                )
+                datos = limpiar_bits(datos)
+            else:
+                cantidad_bits = st.selectbox(
+                    "Cantidad de bits",
+                    [32, 100, 1000, 5000, 10000, 50000],
+                    index=3,
+                    key="g6_cantidad_bits",
+                )
+
+                semilla_datos = st.number_input(
+                    "Semilla para datos",
+                    min_value=0,
+                    max_value=999999,
+                    value=600,
+                    step=1,
+                    key="g6_semilla_datos",
+                )
+
+                datos = generar_bits_aleatorios(
+                    int(cantidad_bits),
+                    semilla=int(semilla_datos),
+                )
+
+                st.code(f"Primeros bits generados: {datos[:120]}", language="text")
+
+            tamano_payload = st.selectbox(
+                "Tamaño de payload CRC por trama",
+                [4, 8, 16, 32],
+                index=2,
+                key="g6_payload",
+            )
+
+            generador_crc = st.text_input(
                 "Generador CRC",
                 value="1011",
-                key="g6_generador_flujo",
+                key="g6_generador_crc",
             ).strip()
 
             sigma = st.slider(
@@ -813,273 +1517,194 @@ muestra las etapas del transmisor, canal y receptor.
                 max_value=2.0,
                 value=0.50,
                 step=0.05,
-                key="g6_sigma_flujo",
+                key="g6_sigma",
             )
 
-            semilla = st.number_input(
-                "Semilla",
-                min_value=0,
-                max_value=999999,
-                value=300,
-                step=1,
-                key="g6_semilla_flujo",
-            )
-
-            ejecutar = st.button("Ejecutar sistema completo", width="stretch")
-
-        with col_info:
-            st.info(
-                """
-Primero se agrega CRC, luego se codifica con Hamming. Después del canal, Hamming corrige
-errores simples y CRC verifica si quedan errores remanentes.
-"""
-            )
-            st.metric("Varianza del ruido σ²", f"{sigma**2:.4f}")
-
-        if not validar_bits(datos):
-            st.error("El mensaje debe contener únicamente 0 y 1.")
-        elif not validar_generador(generador):
-            st.error("El generador CRC debe ser binario, iniciar en 1 y terminar en 1.")
-        elif ejecutar:
-            resultado = ejecutar_pipeline_completo(datos, generador, sigma, int(semilla))
-            resumen = resultado["resumen"]
-
-            st.subheader("Resumen del sistema")
-
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("BER canal codificado", f"{resumen['BER canal codificado']:.6f}")
-            c2.metric("BER post-Hamming", f"{resumen['BER post-Hamming']:.6f}")
-            c3.metric("BER datos finales", f"{resumen['BER datos finales']:.6f}")
-            c4.metric("Estado final", resumen["Estado final"])
-
-            c5, c6, c7, c8 = st.columns(4)
-            c5.metric("Errores canal", resumen["Errores canal codificado"])
-            c6.metric("Errores post-Hamming", resumen["Errores post-Hamming"])
-            c7.metric("Errores datos finales", resumen["Errores datos finales"])
-            c8.metric(
-                "SNR dB",
-                "∞" if math.isinf(resumen["SNR dB"]) else f"{resumen['SNR dB']:.2f}",
-            )
-
-            st.subheader("Secuencias principales")
-
-            st.code(
-                f"Datos originales:             {resumen['Datos originales']}\n"
-                f"CRC Tx:                        {resumen['CRC Tx']}\n"
-                f"Trama con CRC:                 {resumen['Trama con CRC']}\n"
-                f"Hamming Tx:                    {resumen['Hamming Tx']}\n"
-                f"Hamming Rx:                    {resumen['Hamming Rx']}\n"
-                f"Hamming corregido:             {resumen['Hamming corregido']}\n"
-                f"Trama recuperada post-Hamming: {resumen['Trama recuperada post-Hamming']}\n"
-                f"Datos recuperados:             {resumen['Datos recuperados']}\n"
-                f"Residuo CRC Rx:                {resumen['Residuo CRC Rx']}",
-                language="text",
-            )
-
-            st.subheader("Trama codificada antes y después del canal")
-            graficar_bits_discretos(
-                resumen["Hamming Tx"],
-                resumen["Hamming Rx"],
-                "Hamming Tx vs Hamming Rx",
-            )
-
-            st.subheader("Trama recibida vs corregida por Hamming")
-            graficar_bits_discretos(
-                resumen["Hamming Rx"],
-                resumen["Hamming corregido"],
-                "Hamming Rx vs Hamming corregido",
-            )
-
-            st.subheader("Símbolos, ruido y valores recibidos")
-            graficar_senal_discreta(
-                resultado["simbolos"],
-                resultado["ruido"],
-                resultado["recibido_analogico"],
-            )
-
-            st.subheader("Codificación Hamming en el transmisor")
-            st.dataframe(resultado["tabla_hamming_tx"], width="stretch", hide_index=True)
-
-            st.subheader("Decodificación Hamming en el receptor")
-            st.dataframe(resultado["tabla_hamming_rx"], width="stretch", hide_index=True)
-
-            st.subheader("Verificación CRC en el receptor")
-            st.dataframe(resultado["pasos_crc_rx"], width="stretch", hide_index=True)
-
-            if resumen["CRC válido"]:
-                st.success("El CRC acepta la trama recuperada. No se detectan errores remanentes.")
-            else:
-                st.error("El CRC rechaza la trama. Se detectan errores remanentes después de Hamming.")
-
-            st.session_state["g6_ultimo_resultado"] = resultado
-
-    # ========================================================
-    # Comparación de escenarios
-    # ========================================================
-
-    with tabs[3]:
-        st.header("Comparación de escenarios")
-
-        st.markdown(
-            """
-En esta sección se compara el desempeño del sistema bajo cuatro escenarios:
-
-1. Sin protección.
-2. CRC solo.
-3. Hamming solo.
-4. Hamming + CRC.
-
-La comparación permite observar la mejora producida por la corrección y detección de
-errores, junto con el costo de redundancia.
-"""
-        )
-
-        col_param, col_info = st.columns([1, 1])
-
-        with col_param:
-            cantidad_bits = st.selectbox(
-                "Cantidad de bits útiles",
-                [100, 1000, 5000, 10000],
-                index=3,
-                key="g6_bits_comparacion",
-            )
-
-            st.caption(
-                "Para mantener la app estable en la nube, las simulaciones interactivas se limitan a 10,000 bits."
-            )
-
-            generador_comp = st.text_input(
-                "Generador CRC",
-                value="1011",
-                key="g6_generador_comp",
-            ).strip()
-
-            sigma_comp = st.slider(
-                "Desviación estándar σ",
-                min_value=0.0,
-                max_value=2.0,
-                value=0.50,
-                step=0.05,
-                key="g6_sigma_comp",
-            )
-
-            semilla_comp = st.number_input(
-                "Semilla",
+            semilla_canal = st.number_input(
+                "Semilla del canal",
                 min_value=0,
                 max_value=999999,
                 value=900,
                 step=1,
-                key="g6_semilla_comp",
+                key="g6_semilla_canal",
             )
 
-            ejecutar_comp = st.button("Comparar escenarios", width="stretch")
+            ejecutar = st.button("Ejecutar sistema completo")
 
         with col_info:
             st.info(
                 """
-La comparación responde una pregunta central del proyecto: ¿cómo mejora el desempeño
-cuando se agregan mecanismos de detección y corrección de errores?
+Recomendación:
+
+- Use pocos bits para observar tablas y secuencias.
+- Use muchos bits para obtener métricas estadísticas más estables.
+
+La semilla permite repetir el mismo experimento.
 """
             )
 
-        if not validar_generador(generador_comp):
-            st.error("El generador CRC debe ser binario, iniciar en 1 y terminar en 1.")
-        elif ejecutar_comp:
-            datos_comp = generar_bits_aleatorios(cantidad_bits, int(semilla_comp))
+            st.metric("Varianza del ruido σ²", f"{sigma**2:.4f}")
 
-            df_comp = comparar_escenarios(
-                datos=datos_comp,
-                generador=generador_comp,
-                sigma=sigma_comp,
-                semilla=int(semilla_comp),
+        if not validar_bits(datos):
+            st.error("Los datos deben contener únicamente 0 y 1.")
+        elif not validar_generador(generador_crc):
+            st.error("El generador CRC debe ser binario, iniciar en 1 y terminar en 1.")
+        elif ejecutar:
+            df_resultados, detalles = simular_todos_los_escenarios(
+                datos=datos,
+                tamano_payload=int(tamano_payload),
+                generador=generador_crc,
+                sigma=float(sigma),
+                semilla=int(semilla_canal),
             )
 
-            st.subheader("Tabla comparativa")
-            st.dataframe(df_comp, width="stretch", hide_index=True)
+            st.subheader("Tabla comparativa de escenarios")
+
+            columnas = [
+                "Escenario",
+                "Bits de datos originales",
+                "Bits transmitidos por canal",
+                "Bits de redundancia",
+                "Factor de expansión",
+                "BER canal",
+                "BER post-Hamming",
+                "BER final datos",
+                "Errores finales",
+                "Tramas detectadas por CRC",
+                "SNR dB",
+                "σ",
+                "σ²",
+            ]
+
+            for columna in columnas:
+                if columna not in df_resultados.columns:
+                    df_resultados[columna] = np.nan
+
+            st.dataframe(
+                df_resultados[columnas],
+                use_container_width=True,
+                hide_index=True,
+            )
 
             st.subheader("BER final por escenario")
-            graficar_ber_escenarios(df_comp)
+            graficar_comparacion_ber(df_resultados)
 
-            st.subheader("Bits transmitidos por escenario")
-            graficar_bits_transmitidos(df_comp)
+            st.subheader("Costo de redundancia")
+            graficar_expansion(df_resultados)
+
+            st.subheader("Detalle del sistema Hamming + CRC")
+
+            detalle_integrado = detalles["Hamming + CRC"]
 
             st.markdown(
                 """
-**Lectura esperada**
-
-- Sin protección, los errores del canal llegan directamente a los datos.
-- CRC solo detecta errores, pero no los corrige.
-- Hamming reduce errores cuando estos son corregibles por bloque.
-- Hamming + CRC combina corrección y verificación final.
-- La mejora en BER debe interpretarse junto con el costo de redundancia.
+Las siguientes tablas muestran solo las primeras tramas o bloques para facilitar la
+lectura. Las métricas anteriores sí se calculan usando toda la secuencia simulada.
 """
             )
 
-            st.session_state["g6_comparacion"] = df_comp
+            st.markdown("**Primeras tramas CRC generadas en transmisión**")
+            st.dataframe(
+                detalle_integrado["tabla_crc_tx"],
+                use_container_width=True,
+                hide_index=True,
+            )
 
-    # ========================================================
-    # Estadística final
-    # ========================================================
+            st.markdown("**Primeros bloques Hamming recibidos y corregidos**")
+            st.dataframe(
+                detalle_integrado["tabla_hamming_rx"],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.markdown("**Primeras tramas verificadas por CRC en recepción**")
+            st.dataframe(
+                detalle_integrado["tabla_crc_rx"],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.subheader("Muestras discretas del canal en Hamming + CRC")
+
+            graficar_muestras_discretas(detalle_integrado, max_muestras=40)
+
+            st.session_state["g6_df_resultados"] = df_resultados
+            st.session_state["g6_detalles"] = detalles
+            st.session_state["g6_datos_originales"] = datos
+            st.session_state["g6_sigma"] = sigma
+            st.session_state["g6_generador"] = generador_crc
+            st.session_state["g6_payload"] = tamano_payload
 
     with tabs[4]:
-        st.header("Estadística final del sistema completo")
+        st.header("Comparación estadística del sistema Hamming + CRC")
 
         st.markdown(
             """
-En esta sección se evalúa el sistema Hamming + CRC bajo diferentes niveles de ruido.
-El objetivo es observar cómo varía el BER final al aumentar la desviación estándar.
+En esta sección se evalúa únicamente el sistema integrado Hamming + CRC para distintos
+valores de ruido. El objetivo es observar cómo cambia el BER final cuando aumenta σ y
+cuando cambia la SNR.
+
+Se espera que:
+
+- al aumentar σ, aumente la potencia de ruido;
+- al aumentar la potencia de ruido, disminuya la SNR;
+- al disminuir la SNR, aumente la probabilidad de error;
+- al aumentar los errores, Hamming y CRC pueden verse más exigidos.
 """
         )
 
         col_param, col_info = st.columns([1, 1])
 
         with col_param:
-            bits_est = st.selectbox(
-                "Cantidad de bits útiles",
-                [1000, 5000, 10000],
+            cantidad_bits_comp = st.selectbox(
+                "Cantidad de bits para comparación",
+                [1000, 5000, 10000, 50000],
                 index=2,
-                key="g6_bits_est",
+                key="g6_bits_comp",
             )
 
-            st.caption(
-                "En Streamlit Cloud se recomienda trabajar hasta 10,000 bits para mantener tiempos de respuesta adecuados."
+            payload_comp = st.selectbox(
+                "Payload CRC",
+                [4, 8, 16, 32],
+                index=2,
+                key="g6_payload_comp",
             )
 
-            generador_est = st.text_input(
+            gen_comp = st.text_input(
                 "Generador CRC",
                 value="1011",
-                key="g6_generador_est",
+                key="g6_gen_comp",
             ).strip()
 
             sigmas_texto = st.text_input(
                 "Valores de σ separados por coma",
                 value="0.10, 0.30, 0.50, 0.80, 1.00",
-                key="g6_sigmas_est",
+                key="g6_sigmas_comp",
             )
 
-            semilla_est = st.number_input(
+            semilla_comp = st.number_input(
                 "Semilla base",
                 min_value=0,
                 max_value=999999,
-                value=1200,
+                value=1500,
                 step=1,
-                key="g6_semilla_est",
+                key="g6_semilla_comp",
             )
 
-            ejecutar_est = st.button("Ejecutar estadística final", width="stretch")
+            ejecutar_comp = st.button("Comparar Hamming + CRC contra σ")
 
         with col_info:
             st.info(
                 """
-Al aumentar σ, aumenta la potencia del ruido.  
-Esto tiende a aumentar los errores del canal y puede dejar errores remanentes después
-de Hamming, que CRC debe detectar.
+Esta comparación es útil para justificar el uso de gráficas BER vs σ y BER vs SNR dB.
+
+La escala logarítmica ayuda cuando los valores de BER son pequeños.
 """
             )
 
-        if not validar_generador(generador_est):
-            st.error("El generador CRC debe ser binario, iniciar en 1 y terminar en 1.")
-        elif ejecutar_est:
+        if not validar_generador(gen_comp):
+            st.error("El generador CRC debe ser válido.")
+        elif ejecutar_comp:
             try:
                 valores_sigma = [
                     float(valor.strip())
@@ -1098,103 +1723,101 @@ de Hamming, que CRC debe detectar.
                 st.error("Los valores de σ no pueden ser negativos.")
                 return
 
-            df_est = comparar_sigmas_sistema_completo(
-                cantidad_bits=bits_est,
-                generador=generador_est,
+            df_comp = comparar_por_sigma(
+                cantidad_bits=int(cantidad_bits_comp),
+                tamano_payload=int(payload_comp),
+                generador=gen_comp,
                 valores_sigma=valores_sigma,
-                semilla=int(semilla_est),
+                semilla=int(semilla_comp),
             )
 
-            st.subheader("Tabla estadística del sistema completo")
-            st.dataframe(df_est, width="stretch", hide_index=True)
+            st.subheader("Tabla de comparación")
+
+            st.dataframe(
+                df_comp[
+                    [
+                        "σ",
+                        "σ²",
+                        "SNR dB",
+                        "BER canal",
+                        "BER post-Hamming",
+                        "BER final datos",
+                        "Errores finales",
+                        "Tramas detectadas por CRC",
+                        "Bits transmitidos por canal",
+                        "Factor de expansión",
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
 
             st.subheader("BER final vs σ")
-            graficar_ber_vs_sigma(df_est)
+            graficar_ber_vs_sigma(df_comp)
 
-            st.subheader("Estados finales")
-            conteo = df_est["Estado"].value_counts().reset_index()
-            conteo.columns = ["Estado", "Cantidad"]
-            st.bar_chart(conteo.set_index("Estado"))
+            st.subheader("BER final vs SNR dB")
+            graficar_ber_vs_snr(df_comp)
 
-            st.markdown(
-                """
-**Interpretación esperada**
-
-- Al aumentar σ, el canal introduce más errores.
-- Hamming puede corregir errores de un bit por bloque, pero no todos los patrones.
-- CRC permite rechazar tramas con errores remanentes.
-- La confiabilidad del sistema debe evaluarse considerando BER final, aceptación/rechazo
-  y costo de redundancia.
-"""
-            )
-
-            st.session_state["g6_estadistica"] = df_est
-
-    # ========================================================
-    # Análisis y dinámica
-    # ========================================================
+            st.session_state["g6_comparacion_sigma"] = df_comp
 
     with tabs[5]:
         st.header("Análisis y dinámica")
 
         st.markdown(
             """
-Esta sección integra la interpretación de resultados con actividades guiadas.
-El objetivo es que el estudiante relacione el comportamiento del sistema completo con
-las guías anteriores.
+Esta sección reúne los resultados de la última simulación y plantea preguntas de
+interpretación. El objetivo es que el estudiante conecte la teoría con las métricas
+obtenidas.
 """
         )
 
-        if "g6_ultimo_resultado" in st.session_state:
-            st.subheader("Último flujo completo ejecutado")
-
-            resumen = st.session_state["g6_ultimo_resultado"]["resumen"]
-
-            st.table(
-                pd.DataFrame(
-                    [
-                        {
-                            "BER canal codificado": resumen["BER canal codificado"],
-                            "BER post-Hamming": resumen["BER post-Hamming"],
-                            "BER datos finales": resumen["BER datos finales"],
-                            "Errores canal": resumen["Errores canal codificado"],
-                            "Errores post-Hamming": resumen["Errores post-Hamming"],
-                            "Errores finales": resumen["Errores datos finales"],
-                            "Estado final": resumen["Estado final"],
-                            "σ": resumen["σ"],
-                            "σ²": resumen["σ²"],
-                        }
-                    ]
-                )
-            )
-        else:
-            st.info("Ejecute primero el sistema completo.")
-
-        if "g6_comparacion" in st.session_state:
+        if "g6_df_resultados" in st.session_state:
             st.subheader("Última comparación de escenarios")
 
-            df_comp = st.session_state["g6_comparacion"]
+            df_resultados = st.session_state["g6_df_resultados"]
 
-            st.dataframe(df_comp, width="stretch", hide_index=True)
-        else:
-            st.info("Ejecute una comparación de escenarios.")
+            st.dataframe(df_resultados, use_container_width=True, hide_index=True)
 
-        if "g6_estadistica" in st.session_state:
-            st.subheader("Última estadística final")
-
-            df_est = st.session_state["g6_estadistica"]
-
-            mejor = df_est.loc[df_est["BER final"].idxmin()]
-            peor = df_est.loc[df_est["BER final"].idxmax()]
+            mejor = df_resultados.loc[df_resultados["BER final datos"].idxmin()]
+            mayor_redundancia = df_resultados.loc[df_resultados["Factor de expansión"].idxmax()]
 
             st.markdown(
                 f"""
-- Menor BER final observado: **{mejor["BER final"]:.6f}** con $\\sigma = {mejor["σ"]:.2f}$.
-- Mayor BER final observado: **{peor["BER final"]:.6f}** con $\\sigma = {peor["σ"]:.2f}$.
+**Lectura automática**
+
+- El menor BER final observado fue **{mejor["BER final datos"]:.6f}** en el escenario **{mejor["Escenario"]}**.
+- El mayor factor de expansión fue **{mayor_redundancia["Factor de expansión"]:.4f}** en el escenario **{mayor_redundancia["Escenario"]}**.
+
+Esto muestra el compromiso central del control de errores: para mejorar confiabilidad,
+normalmente se transmite más redundancia.
 """
             )
         else:
-            st.info("Ejecute la estadística final para ver el resumen.")
+            st.info("Ejecute primero una simulación interactiva.")
+
+        if "g6_comparacion_sigma" in st.session_state:
+            st.subheader("Última comparación contra σ")
+
+            df_comp = st.session_state["g6_comparacion_sigma"]
+
+            st.dataframe(df_comp, use_container_width=True, hide_index=True)
+
+            menor_sigma = df_comp.loc[df_comp["σ"].idxmin()]
+            mayor_sigma = df_comp.loc[df_comp["σ"].idxmax()]
+
+            st.markdown(
+                f"""
+**Efecto del ruido**
+
+- Con $\\sigma = {menor_sigma["σ"]:.2f}$, el BER final fue **{menor_sigma["BER final datos"]:.6f}**.
+- Con $\\sigma = {mayor_sigma["σ"]:.2f}$, el BER final fue **{mayor_sigma["BER final datos"]:.6f}**.
+
+En general, se espera que al aumentar σ aumente la probabilidad de error, aunque los
+resultados pueden variar por la semilla y por la cantidad de bits simulados.
+"""
+            )
+        else:
+            st.info("Ejecute una comparación estadística contra σ para ver este análisis.")
 
         st.subheader("Actividades guiadas")
 
@@ -1202,113 +1825,110 @@ las guías anteriores.
             """
 Realice las siguientes actividades:
 
-1. Ejecute el flujo completo con un mensaje corto y $\\sigma = 0.10$.
-2. Repita con $\\sigma = 0.80$.
-3. Observe el BER del canal codificado y el BER post-Hamming.
-4. Verifique si el CRC acepta o rechaza la trama.
-5. Compare los escenarios sin protección, CRC solo, Hamming solo y Hamming + CRC.
-6. Ejecute la estadística final para varios valores de $\\sigma$.
-7. Explique en qué casos Hamming mejora el desempeño.
-8. Explique por qué CRC es necesario aunque Hamming corrija errores.
-9. Analice el costo de redundancia comparando bits útiles contra bits transmitidos.
+1. Ejecute la simulación con 32 bits y observe las tablas de tramas y bloques.
+2. Repita con 10,000 bits y observe cómo las métricas se vuelven más estadísticas.
+3. Compare el escenario sin protección con Hamming + CRC.
+4. Identifique cuántos bits adicionales se transmiten por usar redundancia.
+5. Observe si Hamming reduce el BER después del canal.
+6. Observe si CRC detecta tramas alteradas.
+7. Cambie σ de 0.10 a 1.00 y observe el cambio en BER.
+8. Explique por qué un sistema con más redundancia puede tener menor BER final.
+9. Explique por qué CRC no reemplaza a Hamming.
+10. Explique por qué Hamming no reemplaza a CRC.
 """
         )
 
         st.subheader("Preguntas de análisis")
 
         pregunta_1 = st.radio(
-            "Pregunta 1: ¿Cuál es la función de Hamming en el sistema completo?",
+            "Pregunta 1: ¿Cuál es el orden usado en el transmisor del sistema integrado?",
             [
-                "Detectar errores remanentes sin corregirlos.",
-                "Corregir errores de un bit por bloque.",
-                "Eliminar el ruido gaussiano.",
-                "Reducir la potencia de la señal.",
+                "Datos → Hamming → CRC → Canal",
+                "Datos → CRC → Hamming → Canal",
+                "Canal → CRC → Hamming → Datos",
+                "Datos → Canal → CRC → Hamming",
             ],
             index=None,
             key="g6_pregunta_1",
         )
 
         if pregunta_1:
-            if pregunta_1 == "Corregir errores de un bit por bloque.":
-                st.success("Correcto. Hamming permite corregir errores simples por bloque.")
+            if pregunta_1 == "Datos → CRC → Hamming → Canal":
+                st.success("Correcto. Primero se agrega CRC y luego Hamming protege la trama resultante.")
             else:
-                st.error("Revise la función del código Hamming en el receptor.")
+                st.error("Revise el flujo del sistema integrado.")
 
         pregunta_2 = st.radio(
-            "Pregunta 2: ¿Cuál es la función de CRC al final del receptor?",
+            "Pregunta 2: ¿Qué función cumple Hamming en el sistema integrado?",
             [
-                "Aumentar la desviación estándar del ruido.",
-                "Detectar errores remanentes después de la corrección.",
-                "Convertir bits en símbolos BPSK.",
-                "Calcular la matriz generadora.",
+                "Detectar únicamente errores remanentes.",
+                "Corregir errores simples por bloque.",
+                "Eliminar el ruido gaussiano.",
+                "Reducir la cantidad de bits transmitidos.",
             ],
             index=None,
             key="g6_pregunta_2",
         )
 
         if pregunta_2:
-            if pregunta_2 == "Detectar errores remanentes después de la corrección.":
-                st.success("Correcto. CRC verifica si la información recuperada conserva integridad.")
+            if pregunta_2 == "Corregir errores simples por bloque.":
+                st.success("Correcto. Hamming (7,4) corrige un error por bloque.")
             else:
-                st.error("Revise el papel del CRC en el flujo completo.")
+                st.error("Revise el papel de Hamming dentro del sistema.")
 
         pregunta_3 = st.radio(
-            "Pregunta 3: ¿Por qué se comparan escenarios?",
+            "Pregunta 3: ¿Qué función cumple CRC en el sistema integrado?",
             [
-                "Para ocultar los errores del canal.",
-                "Para evaluar cuantitativamente la mejora producida por la redundancia.",
-                "Para evitar usar BER.",
-                "Para eliminar la necesidad de simulación.",
+                "Corregir todos los errores múltiples.",
+                "Detectar errores remanentes.",
+                "Cambiar la modulación BPSK.",
+                "Aumentar la SNR física del canal.",
             ],
             index=None,
             key="g6_pregunta_3",
         )
 
         if pregunta_3:
-            if pregunta_3 == "Para evaluar cuantitativamente la mejora producida por la redundancia.":
-                st.success("Correcto. La comparación permite medir el impacto de Hamming y CRC.")
+            if pregunta_3 == "Detectar errores remanentes.":
+                st.success("Correcto. CRC verifica si quedan errores después de la corrección.")
             else:
-                st.error("Revise la importancia de las estadísticas comparativas.")
+                st.error("Revise el papel de CRC como detector.")
 
         pregunta_4 = st.radio(
-            "Pregunta 4: ¿Qué costo tiene agregar Hamming y CRC?",
+            "Pregunta 4: ¿Qué representa el factor de expansión?",
             [
-                "Aumenta la cantidad de bits transmitidos.",
-                "Elimina la necesidad de canal.",
-                "Reduce todos los mensajes a cero bits.",
-                "Impide calcular SNR.",
+                "La relación entre bits transmitidos y bits originales.",
+                "La cantidad de ruido del canal.",
+                "La cantidad de unos del mensaje.",
+                "El valor del síndrome.",
             ],
             index=None,
             key="g6_pregunta_4",
         )
 
         if pregunta_4:
-            if pregunta_4 == "Aumenta la cantidad de bits transmitidos.":
-                st.success("Correcto. La redundancia mejora la confiabilidad, pero aumenta los bits transmitidos.")
+            if pregunta_4 == "La relación entre bits transmitidos y bits originales.":
+                st.success("Correcto. Mide el costo de redundancia.")
             else:
-                st.error("Revise el concepto de redundancia.")
+                st.error("Revise la definición de factor de expansión.")
 
         pregunta_5 = st.radio(
-            "Pregunta 5: ¿Por qué se usa escala logarítmica para BER?",
+            "Pregunta 5: ¿Por qué se usa BER final de datos?",
             [
-                "Porque el BER puede tomar valores pequeños y la escala logarítmica facilita la comparación.",
-                "Porque la escala logarítmica corrige los errores.",
-                "Porque Hamming solo funciona con logaritmos.",
-                "Porque CRC no usa bits.",
+                "Porque mide los errores que realmente quedan en la información útil recuperada.",
+                "Porque siempre es cero.",
+                "Porque solo mide los bits CRC.",
+                "Porque no depende del canal.",
             ],
             index=None,
             key="g6_pregunta_5",
         )
 
         if pregunta_5:
-            if pregunta_5 == "Porque el BER puede tomar valores pequeños y la escala logarítmica facilita la comparación.":
-                st.success("Correcto. La escala semilogarítmica es común para curvas de desempeño BER.")
+            if pregunta_5 == "Porque mide los errores que realmente quedan en la información útil recuperada.":
+                st.success("Correcto. Es la métrica más cercana a la calidad final percibida por el usuario.")
             else:
-                st.error("Revise la razón de usar BER en escala logarítmica.")
-
-    # ========================================================
-    # Conclusiones
-    # ========================================================
+                st.error("Revise la interpretación del BER final.")
 
     with tabs[6]:
         st.header("Conclusiones")
@@ -1317,34 +1937,45 @@ Realice las siguientes actividades:
             """
 Al finalizar esta guía, el estudiante debe concluir que:
 
-- el sistema completo combina detección y corrección de errores;
-- CRC agrega información de verificación;
-- Hamming agrega redundancia para corregir errores simples;
-- el canal con ruido altera la trama codificada;
-- Hamming reduce errores cuando estos son corregibles;
-- CRC detecta errores remanentes que no fueron corregidos;
-- la comparación estadística permite evaluar la mejora real del sistema;
-- mayor confiabilidad implica mayor redundancia y mayor cantidad de bits transmitidos;
-- los bits y muestras deben representarse de forma discreta;
-- las curvas de desempeño BER se interpretan mejor en escala semilogarítmica.
+- un sistema digital puede modelarse como una cadena de transmisión y recepción;
+- el canal AWGN permite estudiar el efecto del ruido sobre los bits recibidos;
+- BPSK permite representar bits como símbolos positivos y negativos;
+- Hamming (7,4) agrega bits de paridad para corregir errores simples;
+- CRC agrega un residuo para detectar errores remanentes;
+- el flujo integrado usado es Datos → CRC → Hamming → Canal → Hamming Rx → CRC Rx;
+- Hamming y CRC cumplen funciones diferentes;
+- Hamming corrige, pero puede fallar ante errores múltiples;
+- CRC detecta, pero no corrige;
+- combinar ambos mejora la confiabilidad respecto a usar el canal sin protección;
+- la mejora tiene un costo: se transmiten más bits;
+- el BER canal mide el daño producido por el canal;
+- el BER post-Hamming mide la mejora después de la corrección;
+- el BER final de datos mide los errores que quedan en la información útil;
+- al aumentar σ, normalmente aumenta el BER;
+- al aumentar la SNR, normalmente disminuye el BER;
+- las conclusiones estadísticas son más confiables cuando se analizan muchos bits.
+
+La teoría aplicada en esta guía se fundamenta en comunicaciones digitales, codificación
+de canal, control de errores, códigos Hamming, CRC, BER y SNR (Hamming, 1950; Lin &
+Costello, 2004; Proakis & Salehi, 2008; Forouzan, 2013; Stallings, 2015).
 """
         )
-
-    # ========================================================
-    # Referencias
-    # ========================================================
 
     with tabs[7]:
         st.header("Referencias")
 
         st.markdown(
             """
-Forouzan, B. A. (2012). *Data communications and networking* (5th ed.). McGraw-Hill.
+Forouzan, B. A. (2013). *Data communications and networking* (5th ed.). McGraw-Hill Education.
+
+Hamming, R. W. (1950). Error detecting and error correcting codes. *The Bell System Technical Journal, 29*(2), 147–160. https://doi.org/10.1002/j.1538-7305.1950.tb00463.x
+
+Lin, S., & Costello, D. J. (2004). *Error control coding* (2nd ed.). Pearson.
 
 Proakis, J. G., & Salehi, M. (2008). *Digital communications* (5th ed.). McGraw-Hill.
 
 Stallings, W. (2015). *Data and computer communications* (10th ed.). Pearson.
 
-Lin, S., & Costello, D. J. (1983). *Error control coding: Fundamentals and applications*. Prentice-Hall.
+Tanenbaum, A. S., & Wetherall, D. J. (2011). *Computer networks* (5th ed.). Pearson.
 """
         )
