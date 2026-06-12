@@ -54,30 +54,6 @@ def aplicar_estilo_academico() -> None:
             color: #1F4E79;
         }
 
-        /* Pestañas fijas arriba */
-        div[data-testid="stTabs"] div[role="tablist"] {
-            position: sticky;
-            top: 0;
-            z-index: 999;
-            background-color: #F7F9FB;
-            padding-top: 0.5rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 2px solid #D8E3EC;
-        }
-
-        div[data-testid="stTabs"] div[role="tablist"] button {
-            white-space: nowrap;
-            color: #0B1F3A;
-            border-radius: 8px 8px 0 0;
-        }
-
-        div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"] {
-            background-color: #EAF3FA;
-            color: #0B1F3A;
-            border-bottom: 3px solid #556B2F;
-            font-weight: 700;
-        }
-
         /* Botones */
         .stButton > button {
             background-color: #1F4E79;
@@ -143,18 +119,40 @@ def fijar_pestanas_superiores() -> None:
     st.markdown(
         """
         <style>
-        div[data-testid="stTabs"] div[role="tablist"] {
-            position: sticky;
-            top: 0;
-            z-index: 999;
-            background-color: var(--background-color);
-            padding-top: 0.5rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+        /*
+        Hace que la barra de pestañas de Streamlit quede fija
+        mientras el usuario baja en la guía.
+        */
+
+        div[data-testid="stTabs"] {
+            overflow: visible !important;
         }
 
+        div[data-testid="stTabs"] [data-baseweb="tab-list"],
+        div[data-testid="stTabs"] div[role="tablist"] {
+            position: sticky !important;
+            top: 3.75rem !important;
+            z-index: 999999 !important;
+            background-color: #F7F9FB !important;
+            padding-top: 0.6rem !important;
+            padding-bottom: 0.6rem !important;
+            border-bottom: 2px solid #D8E3EC !important;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08) !important;
+        }
+
+        div[data-testid="stTabs"] [data-baseweb="tab-list"] button,
         div[data-testid="stTabs"] div[role="tablist"] button {
-            white-space: nowrap;
+            white-space: nowrap !important;
+            color: #0B1F3A !important;
+            border-radius: 8px 8px 0 0 !important;
+        }
+
+        div[data-testid="stTabs"] [data-baseweb="tab-list"] button[aria-selected="true"],
+        div[data-testid="stTabs"] div[role="tablist"] button[aria-selected="true"] {
+            background-color: #EAF3FA !important;
+            color: #0B1F3A !important;
+            border-bottom: 3px solid #556B2F !important;
+            font-weight: 700 !important;
         }
         </style>
         """,
