@@ -1,141 +1,278 @@
+import math
+from typing import Tuple
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
+
+
+# ============================================================
+# Utilidades generales
+# ============================================================
+
+def limpiar_bits(bits: str) -> str:
+    return bits.strip().replace(" ", "").replace("\n", "").replace("\t", "")
 
 
 def validar_bits(bits: str) -> bool:
     return len(bits) > 0 and all(bit in "01" for bit in bits)
 
 
-def bits_a_pulsos(bits: str) -> np.ndarray:
-    return np.array([int(bit) for bit in bits])
+def generar_bits_aleatorios(cantidad: int, semilla: int | None = None) -> str:
+    rng = np.random.default_rng(semilla)
+    bits = rng.integers(0, 2, size=cantidad)
+    return "".join(str(bit) for bit in bits)
 
 
-def bits_a_simbolos_bpsk(bits: str) -> np.ndarray:
-    bits_array = np.array([int(bit) for bit in bits])
+def bits_a_bpsk(bits: str) -> np.ndarray:
+    bits_array = np.fromiter((int(bit) for bit in bits), dtype=int)
     return np.where(bits_array == 1, 1.0, -1.0)
 
 
-def generar_ruido_gaussiano(
-    cantidad: int,
-    media: float,
+def transmitir_awgn(
+    bits: str,
     sigma: float,
     semilla: int | None = None,
-) -> np.ndarray:
+) -> Tuple[str, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Modelo base:
+        r = s + n
+
+    donde:
+        s = símbolo transmitido
+        n = ruido gaussiano
+        r = valor recibido
+    """
+    if len(bits) == 0:
+        return "", np.array([]), np.array([]), np.array([])
+
     rng = np.random.default_rng(semilla)
-    return rng.normal(loc=media, scale=sigma, size=cantidad)
+
+    simbolos = bits_a_bpsk(bits)
+    ruido = rng.normal(loc=0.0, scale=sigma, size=len(simbolos))
+    recibido = simbolos + ruido
+    bits_rx_array = np.where(recibido >= 0, 1, 0)
+    bits_rx = "".join(str(bit) for bit in bits_rx_array)
+
+    return bits_rx, simbolos, ruido, recibido
 
 
-def decidir_bits(valores_recibidos: np.ndarray) -> np.ndarray:
-    return np.where(valores_recibidos >= 0, 1, 0)
+def contar_errores(bits_tx: str, bits_rx: str) -> int:
+    longitud = min(len(bits_tx), len(bits_rx))
+    if longitud == 0:
+        return 0
+    return sum(1 for a, b in zip(bits_tx[:longitud], bits_rx[:longitud]) if a != b)
 
 
-def calcular_ber(bits_originales: np.ndarray, bits_decididos: np.ndarray) -> tuple[int, float]:
-    errores = int(np.sum(bits_originales != bits_decididos))
-    ber = errores / len(bits_originales)
-    return errores, ber
+def calcular_ber(bits_tx: str, bits_rx: str) -> float:
+    longitud = min(len(bits_tx), len(bits_rx))
+    if longitud == 0:
+        return 0.0
+    return contar_errores(bits_tx, bits_rx) / longitud
 
 
-def construir_tabla_resultados(
-    bits: str,
+def calcular_metricas(simbolos: np.ndarray, ruido: np.ndarray, bits_tx: str, bits_rx: str) -> dict:
+    potencia_senal = float(np.mean(simbolos**2)) if len(simbolos) > 0 else 0.0
+    potencia_ruido = float(np.mean(ruido**2)) if len(ruido) > 0 else 0.0
+    snr_lineal = potencia_senal / potencia_ruido if potencia_ruido > 0 else math.inf
+    snr_db = 10 * math.log10(snr_lineal) if np.isfinite(snr_lineal) and snr_lineal > 0 else math.inf
+    errores = contar_errores(bits_tx, bits_rx)
+    ber = calcular_ber(bits_tx, bits_rx)
+
+    return {
+        "potencia_senal": potencia_senal,
+        "potencia_ruido": potencia_ruido,
+        "snr_lineal": snr_lineal,
+        "snr_db": snr_db,
+        "errores": errores,
+        "ber": ber,
+    }
+
+
+def construir_tabla_muestras(
+    bits_tx: str,
+    bits_rx: str,
     simbolos: np.ndarray,
     ruido: np.ndarray,
-    recibida: np.ndarray,
-    bits_decididos: np.ndarray,
+    recibido: np.ndarray,
+    max_muestras: int,
 ) -> pd.DataFrame:
-    bits_originales = np.array([int(bit) for bit in bits])
+    n = min(max_muestras, len(bits_tx))
 
-    return pd.DataFrame(
-        {
-            "Posición": np.arange(1, len(bits) + 1),
-            "Bit transmitido": bits_originales,
-            "Símbolo transmitido": simbolos,
-            "Ruido n": ruido,
-            "Valor recibido r = s + n": recibida,
-            "Bit decidido": bits_decididos,
-            "Estado": np.where(bits_originales == bits_decididos, "Correcto", "Error"),
-        }
+    datos = {
+        "Índice": np.arange(1, n + 1),
+        "Bit Tx": list(bits_tx[:n]),
+        "Símbolo Tx": simbolos[:n],
+        "Ruido n": ruido[:n],
+        "Valor recibido r": recibido[:n],
+        "Bit Rx": list(bits_rx[:n]),
+        "Estado": ["Correcto" if a == b else "Error" for a, b in zip(bits_tx[:n], bits_rx[:n])],
+    }
+
+    return pd.DataFrame(datos)
+
+
+def analizar_resultados(metricas: dict, sigma: float) -> str:
+    ber = metricas["ber"]
+    snr_db = metricas["snr_db"]
+    errores = metricas["errores"]
+
+    interpretacion = []
+
+    interpretacion.append(
+        f"Se transmitió la secuencia a través de un canal AWGN con desviación estándar σ = {sigma:.3f}, "
+        f"por lo que la varianza del ruido es σ² = {sigma**2:.6f}."
     )
 
+    if np.isfinite(snr_db):
+        interpretacion.append(
+            f"La relación señal-ruido estimada fue aproximadamente {snr_db:.3f} dB. "
+            f"Cuando la potencia del ruido aumenta, la SNR disminuye."
+        )
+    else:
+        interpretacion.append(
+            "La SNR calculada resultó infinita porque la potencia de ruido fue cero o numéricamente despreciable."
+        )
 
-def graficar_pulsos_bits(bits: str):
-    posiciones = np.arange(1, len(bits) + 1)
-    pulsos = bits_a_pulsos(bits)
+    interpretacion.append(
+        f"En esta ejecución se observaron {errores} errores de bit y una BER de {ber:.6f}."
+    )
 
-    fig, ax = plt.subplots(figsize=(9, 3))
-    ax.step(posiciones, pulsos, where="mid")
-    ax.scatter(posiciones, pulsos)
+    if errores == 0:
+        interpretacion.append(
+            "No se observaron errores en la secuencia analizada. Esto no significa que el canal sea perfecto, "
+            "sino que, bajo esta semilla y esta longitud de prueba, el ruido no desplazó ninguna muestra al lado incorrecto del umbral."
+        )
+    elif ber < 0.1:
+        interpretacion.append(
+            "La BER es baja, lo que indica que el ruido alteró algunas muestras, pero la mayoría de decisiones binarias siguieron siendo correctas."
+        )
+    else:
+        interpretacion.append(
+            "La BER es relativamente alta, lo que indica que el ruido está afectando de manera significativa la decisión en el receptor."
+        )
 
-    ax.set_title("Pulsos discretos de bits transmitidos")
-    ax.set_xlabel("Índice de bit")
-    ax.set_ylabel("Valor del bit")
-    ax.set_yticks([0, 1])
-    ax.grid(True)
+    interpretacion.append(
+        "La semilla controla la reproducibilidad del experimento: si no cambia la semilla, el generador aleatorio produce la misma realización de ruido y, por tanto, se repiten los mismos resultados."
+    )
 
-    st.pyplot(fig)
+    interpretacion.append(
+        "En esta guía se observa una aproximación discreta de un proceso de ruido en el tiempo: el ruido se modela como una secuencia de muestras que puede graficarse respecto al índice temporal de observación."
+    )
 
-
-def graficar_simbolos_bpsk(bits: str, simbolos: np.ndarray):
-    posiciones = np.arange(1, len(bits) + 1)
-
-    fig, ax = plt.subplots(figsize=(9, 3))
-    ax.stem(posiciones, simbolos)
-
-    ax.set_title("Símbolos BPSK por bit")
-    ax.set_xlabel("Índice de bit")
-    ax.set_ylabel("Símbolo transmitido")
-    ax.set_yticks([-1, 0, 1])
-    ax.grid(True)
-
-    st.pyplot(fig)
+    return "\n\n".join(interpretacion)
 
 
-def graficar_ruido_discreto(ruido: np.ndarray):
-    posiciones = np.arange(1, len(ruido) + 1)
+# ============================================================
+# Gráficas
+# ============================================================
 
-    fig, ax = plt.subplots(figsize=(9, 3))
-    ax.stem(posiciones, ruido)
-    ax.axhline(0, linestyle="--", linewidth=1)
+def graficar_senal_transmitida(simbolos: np.ndarray, max_muestras: int) -> None:
+    n = min(max_muestras, len(simbolos))
+    x = np.arange(1, n + 1)
 
-    ax.set_title("Ruido gaussiano por muestra")
+    fig, ax = plt.subplots(figsize=(10, 3.8))
+    ax.stem(x, simbolos[:n], basefmt=" ")
+    ax.set_title("Gráfica 1. Señal transmitida (símbolos BPSK) vs índice")
     ax.set_xlabel("Índice de muestra")
-    ax.set_ylabel("Valor de ruido")
+    ax.set_ylabel("Amplitud")
     ax.grid(True)
-
     st.pyplot(fig)
+    plt.close(fig)
 
 
-def graficar_senal_recibida(simbolos: np.ndarray, recibida: np.ndarray):
-    posiciones = np.arange(1, len(simbolos) + 1)
+def graficar_ruido_tiempo(ruido: np.ndarray, max_muestras: int) -> None:
+    """
+    Corrección implementada:
+    - Se mantiene la idea de ruido en función del tiempo/índice.
+    - Se representa como una onda de ruido sobre el eje temporal.
+    """
+    n = min(max_muestras, len(ruido))
+    x = np.arange(1, n + 1)
 
-    fig, ax = plt.subplots(figsize=(9, 4))
+    fig, ax = plt.subplots(figsize=(10, 3.8))
+    ax.plot(x, ruido[:n], marker="o")
+    ax.axhline(0, linewidth=1)
+    ax.set_title("Gráfica 2. Señal de ruido vs tiempo (índice de muestra)")
+    ax.set_xlabel("Índice de muestra")
+    ax.set_ylabel("Amplitud del ruido")
+    ax.grid(True)
+    st.pyplot(fig)
+    plt.close(fig)
 
-    ax.stem(posiciones, simbolos, label="Símbolo transmitido")
-    ax.scatter(posiciones, recibida, marker="x", label="Valor recibido")
 
-    ax.axhline(0, linestyle="--", linewidth=1, label="Umbral de decisión")
+def graficar_superposicion(simbolos: np.ndarray, ruido: np.ndarray, recibido: np.ndarray, max_muestras: int) -> None:
+    """
+    Correcciones implementadas:
+    - Se conserva el índice en el eje X.
+    - Se mantiene la gráfica 3.
+    - Se agrega la onda de ruido.
+    - Se superponen las magnitudes relevantes.
+    """
+    n = min(max_muestras, len(simbolos))
+    x = np.arange(1, n + 1)
 
-    ax.set_title("Símbolos transmitidos y valores recibidos")
-    ax.set_xlabel("Índice de bit")
+    fig, ax = plt.subplots(figsize=(10, 4.2))
+    ax.stem(x, simbolos[:n], basefmt=" ", label="Señal transmitida s")
+    ax.plot(x, ruido[:n], marker="o", label="Ruido n")
+    ax.scatter(x, recibido[:n], marker="x", label="Señal recibida r = s + n")
+    ax.set_title("Gráfica 3. Superposición de señal transmitida, ruido y señal recibida")
+    ax.set_xlabel("Índice de muestra")
     ax.set_ylabel("Amplitud")
     ax.grid(True)
     ax.legend()
-
     st.pyplot(fig)
+    plt.close(fig)
 
+
+def graficar_recepcion_y_umbral(recibido: np.ndarray, bits_rx: str, max_muestras: int) -> None:
+    """
+    Se conserva la línea roja del umbral porque el usuario indicó que no debe quitarse.
+    """
+    n = min(max_muestras, len(recibido))
+    x = np.arange(1, n + 1)
+
+    fig, ax = plt.subplots(figsize=(10, 4.0))
+    ax.plot(x, recibido[:n], marker="o", label="Valores recibidos r")
+    ax.axhline(0, color="red", linestyle="--", linewidth=1.5, label="Umbral de decisión")
+    ax.set_title("Gráfica 4. Señal recibida y umbral de decisión")
+    ax.set_xlabel("Índice de muestra")
+    ax.set_ylabel("Amplitud")
+    ax.grid(True)
+    ax.legend()
+    st.pyplot(fig)
+    plt.close(fig)
+
+    tabla_decision = pd.DataFrame(
+        {
+            "Índice": x,
+            "r": recibido[:n],
+            "Decisión": list(bits_rx[:n]),
+            "Regla aplicada": ["r ≥ 0 → 1" if valor >= 0 else "r < 0 → 0" for valor in recibido[:n]],
+        }
+    )
+    st.dataframe(tabla_decision, use_container_width=True, hide_index=True)
+
+
+# ============================================================
+# Interfaz principal
+# ============================================================
 
 def render_guia_01() -> None:
-    st.title("Guía 1: Canal, ruido y señal en el tiempo")
+    st.title("Guía 1: Introducción al ruido en el tiempo y a la transmisión digital básica")
 
     st.markdown(
         """
-Esta guía introduce el comportamiento básico de una transmisión digital en presencia de ruido.
-El objetivo es observar cómo una secuencia binaria puede representarse como pulsos y símbolos,
-cómo el ruido altera esos valores y cómo el receptor puede tomar decisiones incorrectas.
+Esta guía introduce los conceptos fundamentales necesarios para comprender cómo el ruido afecta
+una señal digital en un sistema de telecomunicaciones. El propósito central es que el estudiante
+observe la relación entre una secuencia de bits, su representación como símbolos, la perturbación
+debida al ruido y el proceso de decisión en el receptor.
 
-En esta versión se evita representar la señal como una curva continua. Las gráficas se muestran
-como secuencias discretas, porque el análisis se realiza bit a bit.
+La guía parte del modelo elemental de comunicación digital, en el cual una señal transmitida se
+ve alterada por ruido durante su propagación a través del canal. En esta implementación se utiliza
+un canal AWGN (Additive White Gaussian Noise), ampliamente empleado en el análisis de sistemas
+digitales por su utilidad teórica y práctica (Proakis & Salehi, 2008; Forouzan, 2013; Stallings, 2015).
 """
     )
 
@@ -143,13 +280,17 @@ como secuencias discretas, porque el análisis se realiza bit a bit.
         [
             "Objetivos",
             "Teoría",
-            "Simulación",
+            "Simulación interactiva",
             "Análisis y dinámica",
+            "Actividad guiada",
             "Conclusiones",
             "Referencias",
         ]
     )
 
+    # ========================================================
+    # OBJETIVOS
+    # ========================================================
     with tabs[0]:
         st.header("Objetivos")
 
@@ -157,29 +298,35 @@ como secuencias discretas, porque el análisis se realiza bit a bit.
             """
 **Objetivo general**
 
-Comprender cómo el ruido afecta una señal digital discreta y cómo dicha alteración puede
-provocar errores en la decisión del receptor.
+Comprender cómo el ruido afecta una señal digital en el tiempo, observando el modelo de transmisión
+básico, la representación BPSK de los bits y el proceso de decisión en el receptor.
 
 **Objetivos específicos**
 
-1. Representar una secuencia binaria mediante pulsos discretos.
-2. Convertir bits en símbolos BPSK.
-3. Interpretar el ruido como una variable aleatoria.
-4. Modificar la media, desviación estándar y varianza del ruido.
-5. Observar cómo el ruido altera las muestras recibidas.
-6. Aplicar una regla de decisión por umbral.
-7. Calcular la tasa de error de bit.
+1. Identificar la relación entre bits y símbolos en una transmisión digital básica.
+2. Comprender el modelo de canal con ruido gaussiano aditivo.
+3. Interpretar la desviación estándar σ y la varianza σ² como parámetros del ruido.
+4. Observar cómo cambia la señal recibida al variar el nivel de ruido.
+5. Analizar el efecto de la semilla en la reproducibilidad de la simulación.
+6. Calcular e interpretar BER, potencia de ruido y SNR.
+7. Relacionar la teoría del ruido con las gráficas obtenidas en la app.
 """
         )
 
+    # ========================================================
+    # TEORÍA
+    # ========================================================
     with tabs[1]:
         st.header("Fundamentación teórica")
 
         st.markdown(
             """
-Un sistema de comunicación digital transmite información desde un transmisor hacia un receptor.
-En este caso, la información se representa mediante bits discretos. Para modelar una transmisión
-simple, cada bit se transforma en un símbolo:
+### 1. Comunicación digital y representación de bits
+
+En un sistema de comunicación digital, la información se representa mediante bits. Para poder
+transmitirlos físicamente, esos bits se convierten en señales o símbolos aptos para el medio
+de transmisión. Una forma muy simple de modelar este proceso consiste en asignar un símbolo
+numérico a cada bit. En esta guía se emplea una representación BPSK normalizada:
 
 $$
 0 \\rightarrow -1
@@ -189,7 +336,14 @@ $$
 1 \\rightarrow +1
 $$
 
-El canal se modela mediante:
+Esta representación permite estudiar de forma clara el efecto del ruido sobre la señal transmitida,
+ya que el receptor deberá decidir si el valor recibido corresponde al símbolo asociado al 0 o al 1
+(Proakis & Salehi, 2008).
+
+### 2. Modelo del canal con ruido
+
+Cuando una señal atraviesa un canal, puede verse afectada por perturbaciones aleatorias. En esta guía
+se emplea el modelo AWGN, cuyo comportamiento puede expresarse como:
 
 $$
 r = s + n
@@ -197,371 +351,416 @@ $$
 
 donde:
 
-- $r$ es el valor recibido;
-- $s$ es el símbolo transmitido;
-- $n$ es el ruido agregado por el canal.
+- $s$ es la señal o símbolo transmitido;
+- $n$ es el ruido gaussiano aditivo;
+- $r$ es la señal recibida.
 
-El ruido se modela como una variable aleatoria gaussiana:
+Se denomina "aditivo" porque el ruido se suma a la señal transmitida; "gaussiano" porque se modela
+con una distribución normal; y "blanco" porque su densidad espectral de potencia se considera uniforme
+en el rango de frecuencias de interés (Proakis & Salehi, 2008; Stallings, 2015).
+
+### 3. Media, desviación estándar y varianza
+
+En una variable aleatoria gaussiana, la media y la dispersión son fundamentales. En canales AWGN
+se suele asumir que la media del ruido es cero:
 
 $$
-n \\sim \\mathcal{N}(\\mu, \\sigma^2)
+\\mu_n = 0
+$$
+
+La desviación estándar del ruido se representa con $\\sigma$ y mide la dispersión de las muestras
+respecto a la media. La varianza se expresa como:
+
+$$
+\\sigma^2
+$$
+
+Cuando $\\sigma$ aumenta, las muestras de ruido se dispersan más alrededor de cero. Como consecuencia,
+la señal recibida tiene mayor probabilidad de desplazarse hacia el lado equivocado del umbral de decisión,
+provocando errores de bit (Forouzan, 2013).
+
+### 4. Decisión en el receptor
+
+El receptor observa el valor recibido $r$ y aplica una regla de decisión sencilla:
+
+- si $r \\geq 0$, decide bit 1;
+- si $r < 0$, decide bit 0.
+
+Esta regla se basa en que, sin ruido, el símbolo +1 representa el bit 1 y el símbolo -1 representa
+el bit 0. Si el ruido es pequeño, la muestra recibida permanece cerca del símbolo correcto; si el ruido
+es grande, puede cruzar el umbral y provocar una decisión errónea (Sklar, 2001; Proakis & Salehi, 2008).
+
+### 5. BER: tasa de error de bit
+
+La BER (Bit Error Rate) es una métrica fundamental en telecomunicaciones digitales y se define como:
+
+$$
+BER = \\frac{N_{errores}}{N_{bits}}
 $$
 
 donde:
 
-- $\\mu$ es la media;
-- $\\sigma$ es la desviación estándar;
-- $\\sigma^2$ es la varianza.
+- $N_{errores}$ es el número de bits recibidos incorrectamente;
+- $N_{bits}$ es la cantidad total de bits analizados.
 
-La decisión del receptor se realiza con un umbral en cero:
+La BER permite evaluar qué tan afectada fue la transmisión por el ruido. Si el canal está poco afectado,
+la BER será baja; si el ruido es fuerte, la BER tenderá a aumentar (Forouzan, 2013; Stallings, 2015).
+
+### 6. Relación señal-ruido
+
+La relación señal-ruido (SNR) compara la potencia de la señal con la potencia del ruido:
 
 $$
-r \\geq 0 \\Rightarrow \\hat{b}=1
+SNR = \\frac{P_s}{P_n}
 $$
 
+y en decibeles:
+
 $$
-r < 0 \\Rightarrow \\hat{b}=0
+SNR_{dB} = 10 \\log_{10}(SNR)
 $$
 
-Si el ruido desplaza el valor recibido al lado contrario del umbral, el receptor decide
-un bit incorrecto.
+Una SNR alta indica que la señal domina sobre el ruido; una SNR baja indica que el ruido tiene un peso
+más importante y puede afectar la calidad de la recepción (Proakis & Salehi, 2008).
 
-**Sobre la semilla**
+### 7. Semilla y reproducibilidad
 
-La semilla es un número que permite repetir una misma simulación. Si se mantienen la misma
-secuencia, la misma desviación estándar y la misma semilla, el ruido generado será el mismo.
-Esto permite comparar resultados y verificar ejercicios de forma reproducible.
+La semilla es el valor inicial del generador de números pseudoaleatorios. En esta guía se utiliza para
+generar el ruido gaussiano. Si se usa la misma semilla con los mismos parámetros, el experimento produce
+los mismos resultados. Esto es importante en entornos de laboratorio, ya que permite repetir pruebas y
+comparar observaciones de forma controlada.
+
+### 8. Interpretación temporal del ruido
+
+Aunque el ruido es un proceso aleatorio, en simulación suele observarse como una secuencia de muestras
+a lo largo del tiempo o del índice de observación. Por ello, en esta guía se muestran gráficas en las
+que el eje horizontal representa el índice de muestra. Esto permite estudiar el comportamiento del ruido
+en el tiempo y su influencia directa sobre la señal recibida.
 """
         )
 
+        st.info(
+            """
+Cuadro de interpretación teórica:
+
+- Si σ aumenta, la dispersión del ruido aumenta.
+- Si la dispersión del ruido aumenta, la señal recibida se aleja más de la señal transmitida.
+- Si la señal recibida cruza el umbral incorrecto, aparece un error de bit.
+- Si aumentan los errores de bit, aumenta la BER.
+- Si la potencia de ruido aumenta, disminuye la SNR.
+"""
+        )
+
+    # ========================================================
+    # SIMULACIÓN INTERACTIVA
+    # ========================================================
     with tabs[2]:
         st.header("Simulación interactiva")
 
-        col_entrada, col_info = st.columns([1, 1])
+        st.markdown(
+            """
+En esta sección el estudiante puede generar una secuencia de bits, observar su representación
+como símbolos BPSK, analizar el ruido en el tiempo y estudiar la señal recibida. Se han aplicado
+las correcciones solicitadas en la guía:
 
-        with col_entrada:
-            modo = st.radio(
+- se mantiene la gráfica 3;
+- se conserva el índice de muestra;
+- se incorpora la onda de ruido en la superposición;
+- se mantiene la idea de ruido en función del tiempo;
+- se conserva la línea roja del umbral en la gráfica 4.
+"""
+        )
+
+        col1, col2 = st.columns([1, 1])
+
+        with col1:
+            modo_entrada = st.radio(
                 "Modo de entrada",
-                ["Secuencia manual", "Secuencia aleatoria"],
+                ["Mensaje manual", "Bits aleatorios"],
                 key="g1_modo_entrada",
             )
 
-            if modo == "Secuencia manual":
-                bits = st.text_input(
-                    "Secuencia binaria transmitida",
-                    value="1011001",
-                    help="Ingrese únicamente ceros y unos.",
+            if modo_entrada == "Mensaje manual":
+                bits_tx = st.text_area(
+                    "Ingrese la secuencia binaria",
+                    value="1011001110010110",
                     key="g1_bits_manual",
-                ).strip()
+                )
+                bits_tx = limpiar_bits(bits_tx)
             else:
                 cantidad_bits = st.selectbox(
                     "Cantidad de bits",
-                    [8, 16, 32, 64],
+                    [8, 16, 32, 64, 128],
                     index=1,
                     key="g1_cantidad_bits",
                 )
-
-                semilla_bits = st.number_input(
-                    "Semilla para generar bits",
+                semilla_datos = st.number_input(
+                    "Semilla para los datos",
                     min_value=0,
                     max_value=999999,
-                    value=10,
+                    value=101,
                     step=1,
-                    key="g1_semilla_bits",
+                    key="g1_semilla_datos",
                 )
-
-                rng = np.random.default_rng(int(semilla_bits))
-                bits_generados = rng.integers(0, 2, size=cantidad_bits)
-                bits = "".join(str(bit) for bit in bits_generados)
-
-                st.code(f"Bits generados: {bits}", language="text")
-
-            media = st.number_input(
-                "Media del ruido μ",
-                min_value=-2.0,
-                max_value=2.0,
-                value=0.0,
-                step=0.1,
-                key="g1_media_ruido",
-            )
+                bits_tx = generar_bits_aleatorios(int(cantidad_bits), semilla=int(semilla_datos))
+                st.code(bits_tx, language="text")
 
             sigma = st.slider(
                 "Desviación estándar del ruido σ",
                 min_value=0.0,
                 max_value=2.0,
-                value=0.30,
+                value=0.35,
                 step=0.05,
-                key="g1_sigma_ruido",
+                key="g1_sigma",
             )
 
             semilla_ruido = st.number_input(
                 "Semilla del ruido",
                 min_value=0,
                 max_value=999999,
-                value=42,
+                value=1234,
                 step=1,
                 key="g1_semilla_ruido",
             )
 
-            ejecutar = st.button("Ejecutar simulación", width="stretch")
+            max_muestras = st.slider(
+                "Cantidad de muestras a mostrar en gráficas",
+                min_value=4,
+                max_value=40,
+                value=16,
+                step=1,
+                key="g1_max_muestras",
+            )
 
-        with col_info:
-            st.info(
+            ejecutar = st.button("Ejecutar simulación", key="g1_ejecutar")
+
+        with col2:
+            st.markdown(
                 """
-La desviación estándar controla la dispersión del ruido.  
-La varianza se calcula como:
+**Parámetros de observación**
 
-$$
-\\sigma^2
-$$
-
-Si aumenta $\\sigma$, las muestras de ruido pueden alejarse más de la media y provocar
-más cruces del umbral de decisión.
+- La semilla permite repetir exactamente el mismo experimento.
+- La desviación estándar $\\sigma$ controla la dispersión del ruido.
+- La varianza del ruido es $\\sigma^2$.
+- El número de muestras visibles afecta solamente la visualización, no la teoría del modelo.
 """
             )
 
-            st.metric("Varianza del ruido σ²", f"{sigma**2:.4f}")
+            st.metric("Varianza del ruido σ²", f"{sigma**2:.6f}")
 
-        if not validar_bits(bits):
-            st.error("La secuencia ingresada no es válida. Use únicamente 0 y 1.")
-            return
-
-        if ejecutar:
-            bits_originales = np.array([int(bit) for bit in bits])
-            simbolos = bits_a_simbolos_bpsk(bits)
-
-            ruido = generar_ruido_gaussiano(
-                cantidad=len(bits),
-                media=media,
-                sigma=sigma,
+        if not validar_bits(bits_tx):
+            st.error("La secuencia debe contener únicamente 0 y 1.")
+        elif ejecutar:
+            bits_rx, simbolos, ruido, recibido = transmitir_awgn(
+                bits_tx,
+                sigma=float(sigma),
                 semilla=int(semilla_ruido),
             )
 
-            recibida = simbolos + ruido
-            bits_decididos = decidir_bits(recibida)
-            errores, ber = calcular_ber(bits_originales, bits_decididos)
+            metricas = calcular_metricas(simbolos, ruido, bits_tx, bits_rx)
+            tabla = construir_tabla_muestras(bits_tx, bits_rx, simbolos, ruido, recibido, int(max_muestras))
 
-            tabla = construir_tabla_resultados(
-                bits=bits,
-                simbolos=simbolos,
-                ruido=ruido,
-                recibida=recibida,
-                bits_decididos=bits_decididos,
-            )
+            st.subheader("Métricas principales")
 
-            st.subheader("Resultados principales")
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Errores", f"{metricas['errores']}")
+            m2.metric("BER", f"{metricas['ber']:.6f}")
+            m3.metric("SNR (dB)", "∞" if not np.isfinite(metricas["snr_db"]) else f"{metricas['snr_db']:.3f}")
+            m4.metric("Potencia de ruido", f"{metricas['potencia_ruido']:.6f}")
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Bits transmitidos", len(bits))
-            c2.metric("Errores", errores)
-            c3.metric("BER", f"{ber:.4f}")
-            c4.metric("Varianza σ²", f"{sigma**2:.4f}")
+            st.subheader("Gráficas")
 
-            secuencia_decidida = "".join(str(bit) for bit in bits_decididos)
+            graficar_senal_transmitida(simbolos, int(max_muestras))
+            graficar_ruido_tiempo(ruido, int(max_muestras))
+            graficar_superposicion(simbolos, ruido, recibido, int(max_muestras))
+            graficar_recepcion_y_umbral(recibido, bits_rx, int(max_muestras))
 
-            st.code(
-                f"Bits transmitidos: {bits}\n"
-                f"Bits decididos:    {secuencia_decidida}",
-                language="text",
-            )
+            st.subheader("Tabla de muestras")
+            st.dataframe(tabla, use_container_width=True, hide_index=True)
 
-            st.subheader("Tabla del proceso")
-            st.dataframe(tabla, width="stretch", hide_index=True)
-
-            st.subheader("1. Pulsos discretos de bits")
-            graficar_pulsos_bits(bits)
-
-            st.subheader("2. Símbolos BPSK discretos")
-            graficar_simbolos_bpsk(bits, simbolos)
-
-            st.subheader("3. Ruido por muestra")
-            graficar_ruido_discreto(ruido)
-
-            st.subheader("4. Símbolos transmitidos vs valores recibidos")
-            graficar_senal_recibida(simbolos, recibida)
-
-            st.markdown(
+            st.info(
                 f"""
-**Cálculo del BER**
+Cuadrito de interpretación:
 
-$$
-BER = \\frac{{N_e}}{{N_t}} = \\frac{{{errores}}}{{{len(bits)}}} = {ber:.4f}
-$$
+- Se transmitieron {len(bits_tx)} bits.
+- Con σ = {sigma:.3f}, la varianza del ruido fue σ² = {sigma**2:.6f}.
+- La BER observada fue {metricas['ber']:.6f}.
+- Si repite la simulación con la misma semilla del ruido, obtendrá la misma forma de onda y los mismos resultados.
+- Si aumenta σ, la onda de ruido tiende a alejar más la señal recibida de la señal transmitida.
 """
             )
 
-            if errores == 0:
-                st.success(
-                    "No se produjeron errores. Ningún valor recibido cruzó el umbral incorrectamente."
-                )
-            else:
-                st.warning(
-                    "Se produjeron errores. Al menos un valor recibido fue desplazado por el ruido hacia el lado incorrecto del umbral."
-                )
+            st.session_state["g1_bits_tx"] = bits_tx
+            st.session_state["g1_bits_rx"] = bits_rx
+            st.session_state["g1_simbolos"] = simbolos
+            st.session_state["g1_ruido"] = ruido
+            st.session_state["g1_recibido"] = recibido
+            st.session_state["g1_metricas"] = metricas
+            st.session_state["g1_sigma"] = sigma
 
-            st.session_state["guia_01_resultados"] = {
-                "bits": bits,
-                "sigma": sigma,
-                "varianza": sigma**2,
-                "errores": errores,
-                "ber": ber,
-                "media": media,
-                "semilla_ruido": int(semilla_ruido),
-            }
-
+    # ========================================================
+    # ANÁLISIS Y DINÁMICA
+    # ========================================================
     with tabs[3]:
         st.header("Análisis y dinámica")
 
         st.markdown(
             """
-Esta sección combina la interpretación de resultados con actividades guiadas.  
-Primero revise la última simulación ejecutada y luego realice las pruebas propuestas.
+Esta sección vincula directamente los resultados obtenidos en la simulación con su interpretación
+teórica. El propósito es que el estudiante no solo vea las gráficas, sino que entienda qué significan
+y cómo se relacionan entre sí.
 """
         )
 
-        if "guia_01_resultados" in st.session_state:
-            resultados = st.session_state["guia_01_resultados"]
-
-            st.subheader("Resumen de la última simulación")
-
-            st.table(
-                pd.DataFrame(
-                    [
-                        {
-                            "Secuencia": resultados["bits"],
-                            "Media μ": resultados["media"],
-                            "σ": resultados["sigma"],
-                            "σ²": resultados["varianza"],
-                            "Semilla": resultados["semilla_ruido"],
-                            "Errores": resultados["errores"],
-                            "BER": resultados["ber"],
-                        }
-                    ]
-                )
-            )
+        if "g1_metricas" not in st.session_state:
+            st.info("Ejecute primero la simulación interactiva para ver el análisis automático.")
         else:
-            st.info("Ejecute primero una simulación en la pestaña Simulación.")
+            metricas = st.session_state["g1_metricas"]
+            sigma = st.session_state["g1_sigma"]
 
-        st.subheader("Actividades guiadas")
+            st.markdown(analizar_resultados(metricas, sigma))
+
+            st.subheader("Experimento rápido: efecto de cambiar σ")
+
+            valores_sigma = [0.10, 0.30, 0.50, 0.80, 1.00]
+            bits_base = st.session_state["g1_bits_tx"]
+
+            filas = []
+            for i, sig in enumerate(valores_sigma):
+                bits_rx_tmp, simbolos_tmp, ruido_tmp, _ = transmitir_awgn(
+                    bits_base,
+                    sigma=sig,
+                    semilla=500 + i,
+                )
+                metricas_tmp = calcular_metricas(simbolos_tmp, ruido_tmp, bits_base, bits_rx_tmp)
+                filas.append(
+                    {
+                        "σ": sig,
+                        "σ²": sig**2,
+                        "Errores": metricas_tmp["errores"],
+                        "BER": metricas_tmp["ber"],
+                        "SNR dB": metricas_tmp["snr_db"] if np.isfinite(metricas_tmp["snr_db"]) else np.nan,
+                    }
+                )
+
+            df_comp = pd.DataFrame(filas)
+            st.dataframe(df_comp, use_container_width=True, hide_index=True)
+
+            fig, ax = plt.subplots(figsize=(8, 4))
+            df_plot = df_comp.copy()
+            df_plot["BER ajustada"] = df_plot["BER"].replace(0, 1e-6)
+            ax.semilogy(df_plot["σ"], df_plot["BER ajustada"], marker="o")
+            ax.set_title("Efecto de σ sobre la BER")
+            ax.set_xlabel("σ")
+            ax.set_ylabel("BER (escala logarítmica)")
+            ax.grid(True, which="both")
+            st.pyplot(fig)
+            plt.close(fig)
+
+            st.markdown(
+                """
+Interpretación del experimento:
+
+- La tabla muestra cómo cambia la BER cuando cambia σ.
+- Cuando σ aumenta, también aumenta la varianza del ruido.
+- Al aumentar la varianza del ruido, la señal recibida presenta mayor dispersión.
+- Esa mayor dispersión eleva la probabilidad de cruzar el umbral incorrecto.
+- Por ello, en general, la BER tiende a aumentar cuando σ aumenta.
+"""
+            )
+
+    # ========================================================
+    # ACTIVIDAD GUIADA
+    # ========================================================
+    with tabs[4]:
+        st.header("Actividad guiada para el estudiante")
 
         st.markdown(
             """
-Realice las siguientes pruebas:
+### Actividad 1. Interpretación de símbolos
 
-1. Use la misma secuencia con $\\sigma = 0.10$.
-2. Repita con $\\sigma = 0.50$.
-3. Repita con $\\sigma = 1.00$.
-4. Observe cómo cambia la dispersión del ruido.
-5. Identifique si los valores recibidos cruzan el umbral.
-6. Cambie la semilla del ruido y observe cómo cambia la realización del experimento.
-7. Explique por qué el BER puede cambiar aunque la secuencia sea la misma.
+1. Ingrese una secuencia binaria de 8 a 16 bits.
+2. Identifique qué símbolo BPSK corresponde a cada bit.
+3. Observe la gráfica 1 y describa cómo se representan los bits 0 y 1.
+
+### Actividad 2. Observación del ruido
+
+1. Fije una semilla del ruido.
+2. Ejecute la simulación con σ = 0.10.
+3. Luego repita con σ = 0.80.
+4. Compare la gráfica 2 en ambos casos y describa cómo cambió la amplitud del ruido.
+
+### Actividad 3. Superposición de señal y ruido
+
+1. Observe la gráfica 3.
+2. Explique qué representa cada elemento:
+   - señal transmitida;
+   - ruido;
+   - señal recibida.
+3. Describa cómo el ruido modifica la posición de la señal recibida respecto a la transmitida.
+
+### Actividad 4. Umbral de decisión
+
+1. Observe la gráfica 4.
+2. Explique la función de la línea roja horizontal.
+3. Identifique si existen muestras que cruzan el umbral de forma incorrecta.
+4. Compare esas observaciones con la tabla de decisión.
+
+### Actividad 5. Papel de la semilla
+
+1. Ejecute dos veces la simulación con la misma semilla del ruido.
+2. Verifique si los resultados se repiten.
+3. Cambie la semilla y observe qué cambia.
+
+### Preguntas de reflexión
+
+- ¿Qué significa que el ruido tenga media cero?
+- ¿Por qué aumentar σ aumenta el riesgo de error?
+- ¿Qué representa la varianza σ² en este contexto?
+- ¿Por qué la BER no siempre es la misma al cambiar la semilla?
+- ¿Por qué una SNR baja suele asociarse con una BER mayor?
 """
         )
 
-        st.subheader("Preguntas de análisis")
-
-        respuesta_1 = st.radio(
-            "Pregunta 1: ¿Por qué se usan gráficas discretas en esta guía?",
-            [
-                "Porque los bits y las muestras se analizan por posiciones discretas.",
-                "Porque el canal no tiene ruido.",
-                "Porque el BER siempre es cero.",
-                "Porque la señal no puede representarse numéricamente.",
-            ],
-            index=None,
-            key="g1_pregunta_discreta",
-        )
-
-        if respuesta_1:
-            if respuesta_1 == "Porque los bits y las muestras se analizan por posiciones discretas.":
-                st.success("Correcto. El análisis se realiza bit a bit y muestra a muestra.")
-            else:
-                st.error("Revise la diferencia entre representación discreta y continua.")
-
-        respuesta_2 = st.radio(
-            "Pregunta 2: ¿Qué representa σ²?",
-            [
-                "La media del ruido.",
-                "La varianza del ruido.",
-                "El número de bits transmitidos.",
-                "La palabra Hamming.",
-            ],
-            index=None,
-            key="g1_pregunta_varianza",
-        )
-
-        if respuesta_2:
-            if respuesta_2 == "La varianza del ruido.":
-                st.success("Correcto. σ² representa la varianza del ruido.")
-            else:
-                st.error("Revise la relación entre desviación estándar y varianza.")
-
-        respuesta_3 = st.radio(
-            "Pregunta 3: ¿Cuándo ocurre un error de decisión?",
-            [
-                "Cuando el valor recibido cruza al lado incorrecto del umbral.",
-                "Cuando el ruido tiene media cero.",
-                "Cuando el bit transmitido es siempre 1.",
-                "Cuando la semilla es fija.",
-            ],
-            index=None,
-            key="g1_pregunta_error",
-        )
-
-        if respuesta_3:
-            if respuesta_3 == "Cuando el valor recibido cruza al lado incorrecto del umbral.":
-                st.success(
-                    "Correcto. El receptor decide mal cuando el ruido desplaza la muestra al lado opuesto del umbral."
-                )
-            else:
-                st.error("Revise el criterio de decisión por umbral.")
-
-        respuesta_4 = st.radio(
-            "Pregunta 4: ¿Qué permite la semilla dentro de la simulación?",
-            [
-                "Eliminar completamente el ruido.",
-                "Repetir el mismo experimento aleatorio bajo los mismos parámetros.",
-                "Reducir automáticamente el BER a cero.",
-                "Cambiar el código Hamming.",
-            ],
-            index=None,
-            key="g1_pregunta_semilla",
-        )
-
-        if respuesta_4:
-            if respuesta_4 == "Repetir el mismo experimento aleatorio bajo los mismos parámetros.":
-                st.success("Correcto. La semilla hace reproducible la simulación.")
-            else:
-                st.error("Revise el significado de la semilla en simulaciones aleatorias.")
-
-    with tabs[4]:
+    # ========================================================
+    # CONCLUSIONES
+    # ========================================================
+    with tabs[5]:
         st.header("Conclusiones")
 
         st.markdown(
             """
-Al finalizar esta guía, el estudiante debe concluir que:
+Al finalizar esta guía, el estudiante debe haber comprendido que la transmisión digital no consiste
+únicamente en enviar bits, sino en enviar símbolos a través de un canal que puede alterarlos por efecto
+del ruido. El modelo AWGN permite estudiar ese fenómeno de forma controlada y observar cómo la perturbación
+aleatoria modifica la señal recibida.
 
-- una secuencia binaria se analiza de forma discreta;
-- los bits pueden representarse como pulsos;
-- los símbolos BPSK representan los bits mediante niveles +1 y -1;
-- el ruido se modela como variable aleatoria;
-- la desviación estándar controla la dispersión del ruido;
-- la varianza corresponde a $\\sigma^2$;
-- un error ocurre cuando el ruido desplaza una muestra al lado incorrecto del umbral;
-- el BER permite cuantificar la proporción de errores;
-- la semilla permite repetir un mismo experimento aleatorio.
+También debe quedar claro que la desviación estándar $\\sigma$ y la varianza $\\sigma^2$ determinan la
+intensidad estadística del ruido. A mayor dispersión, mayor probabilidad de error. Esta relación se refleja
+en la BER y en la SNR, dos métricas esenciales para el análisis de sistemas de telecomunicaciones digitales.
+
+Finalmente, la guía permite comprender que la semilla es una herramienta fundamental para repetir experimentos
+y que la observación temporal del ruido ayuda a construir una intuición inicial sólida antes de avanzar hacia
+etapas posteriores del proyecto, como detección y corrección de errores con Hamming y CRC.
 """
         )
 
-    with tabs[5]:
+    # ========================================================
+    # REFERENCIAS
+    # ========================================================
+    with tabs[6]:
         st.header("Referencias")
 
         st.markdown(
             """
-Forouzan, B. A. (2012). *Data communications and networking* (5th ed.). McGraw-Hill.
+Forouzan, B. A. (2013). *Data communications and networking* (5th ed.). McGraw-Hill Education.
 
 Proakis, J. G., & Salehi, M. (2008). *Digital communications* (5th ed.). McGraw-Hill.
 
+Sklar, B. (2001). *Digital communications: Fundamentals and applications* (2nd ed.). Prentice Hall.
+
 Stallings, W. (2015). *Data and computer communications* (10th ed.). Pearson.
+
+Tanenbaum, A. S., & Wetherall, D. J. (2011). *Computer networks* (5th ed.). Pearson.
 """
         )
