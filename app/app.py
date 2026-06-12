@@ -120,24 +120,27 @@ def fijar_pestanas_superiores() -> None:
         """
         <style>
         /*
-        Hace que la barra de pestañas de Streamlit quede fija
-        mientras el usuario baja en la guía.
+        Solución fuerte: fija la barra de pestañas con position: fixed.
+        Esto es más agresivo que sticky y funciona mejor cuando Streamlit
+        no respeta position: sticky dentro de st.tabs.
         */
-
-        div[data-testid="stTabs"] {
-            overflow: visible !important;
-        }
 
         div[data-testid="stTabs"] [data-baseweb="tab-list"],
         div[data-testid="stTabs"] div[role="tablist"] {
-            position: sticky !important;
-            top: 3.75rem !important;
+            position: fixed !important;
+            top: 3.2rem !important;
+            left: 22rem !important;
+            right: 1.5rem !important;
             z-index: 999999 !important;
+
             background-color: #F7F9FB !important;
-            padding-top: 0.6rem !important;
-            padding-bottom: 0.6rem !important;
+            padding: 0.65rem 0.75rem 0.55rem 0.75rem !important;
             border-bottom: 2px solid #D8E3EC !important;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08) !important;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12) !important;
+            border-radius: 0 0 10px 10px !important;
+
+            overflow-x: auto !important;
+            white-space: nowrap !important;
         }
 
         div[data-testid="stTabs"] [data-baseweb="tab-list"] button,
@@ -145,6 +148,7 @@ def fijar_pestanas_superiores() -> None:
             white-space: nowrap !important;
             color: #0B1F3A !important;
             border-radius: 8px 8px 0 0 !important;
+            font-weight: 600 !important;
         }
 
         div[data-testid="stTabs"] [data-baseweb="tab-list"] button[aria-selected="true"],
@@ -152,7 +156,28 @@ def fijar_pestanas_superiores() -> None:
             background-color: #EAF3FA !important;
             color: #0B1F3A !important;
             border-bottom: 3px solid #556B2F !important;
-            font-weight: 700 !important;
+            font-weight: 800 !important;
+        }
+
+        /*
+        Agrega espacio arriba del contenido para que las pestañas fijas
+        no tapen el inicio de cada sección.
+        */
+        div[data-testid="stTabs"] [data-baseweb="tab-panel"],
+        div[data-testid="stTabs"] div[role="tabpanel"] {
+            padding-top: 5.5rem !important;
+        }
+
+        /*
+        En pantallas pequeñas, la barra ocupa casi todo el ancho.
+        */
+        @media (max-width: 900px) {
+            div[data-testid="stTabs"] [data-baseweb="tab-list"],
+            div[data-testid="stTabs"] div[role="tablist"] {
+                left: 0.75rem !important;
+                right: 0.75rem !important;
+                top: 3.2rem !important;
+            }
         }
         </style>
         """,
