@@ -720,14 +720,19 @@ Esta guía estudia la relación entre el ruido y la tasa de error de bit en un s
 digital básico. Se analiza cómo la desviación estándar del ruido, la varianza, la SNR
 y la aproximación de energía por bit afectan la probabilidad de error.
 
-Las correcciones implementadas en esta versión son:
+El propósito de la guía es que el estudiante comprenda cómo se comporta la BER cuando
+cambian las condiciones del canal. Para ello, se comparan diferentes niveles de ruido
+y se analizan métricas fundamentales como:
 
-- ajuste de la gráfica **BER vs SNR**;
-- ajuste de la gráfica **BER vs varianza**;
-- desarrollo teórico de la aproximación de **Eb/N0**;
-- refuerzo de teoría con referencias dentro del texto;
-- uso de escala logarítmica para BER;
-- conservación de tablas con valores reales aunque las gráficas usen piso visual para BER = 0.
+- la tasa de error de bit o BER;
+- la relación señal-ruido o SNR;
+- la varianza del ruido σ²;
+- la energía por bit respecto a la densidad espectral de ruido Eb/N0;
+- la comparación entre BER simulada y BER teórica para BPSK en AWGN.
+
+Las gráficas de esta guía utilizan escala logarítmica para representar la BER, debido
+a que esta métrica puede tomar valores muy pequeños. Esto permite observar con mayor
+claridad la diferencia entre escenarios de bajo y alto ruido.
 """
     )
 
