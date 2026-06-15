@@ -460,14 +460,24 @@ Cuadro de interpretación teórica:
         st.markdown(
             """
 En esta sección el estudiante puede generar una secuencia de bits, observar su representación
-como símbolos BPSK, analizar el ruido en el tiempo y estudiar la señal recibida. Se han aplicado
-las correcciones solicitadas en la guía:
+como símbolos BPSK, analizar el comportamiento del ruido en el tiempo y estudiar cómo se forma
+la señal recibida en el receptor.
 
-- se mantiene la gráfica 3;
-- se conserva el índice de muestra;
-- se incorpora la onda de ruido en la superposición;
-- se mantiene la idea de ruido en función del tiempo;
-- se conserva la línea roja del umbral en la gráfica 4.
+La simulación permite visualizar cuatro elementos importantes del proceso de transmisión digital:
+
+1. la señal transmitida como una secuencia de símbolos discretos;
+2. el ruido gaussiano generado para cada muestra;
+3. la superposición entre señal transmitida, ruido y señal recibida;
+4. la decisión final del receptor usando un umbral.
+
+El propósito de esta sección es relacionar la teoría del modelo:
+
+$$
+r = s + n
+$$
+
+con las gráficas obtenidas en la app. De esta forma, el estudiante puede observar cómo el ruido
+modifica la señal transmitida y cómo esa modificación puede producir errores de bit.
 """
         )
 
