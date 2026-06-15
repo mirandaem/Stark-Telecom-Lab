@@ -72,11 +72,20 @@ def calcular_ber(bits_tx: str, bits_rx: str) -> float:
     return contar_errores(bits_tx, bits_rx) / longitud
 
 
-def calcular_metricas(simbolos: np.ndarray, ruido: np.ndarray, bits_tx: str, bits_rx: str) -> dict:
+def calcular_metricas(
+    simbolos: np.ndarray,
+    ruido: np.ndarray,
+    bits_tx: str,
+    bits_rx: str,
+) -> dict:
     potencia_senal = float(np.mean(simbolos**2)) if len(simbolos) > 0 else 0.0
     potencia_ruido = float(np.mean(ruido**2)) if len(ruido) > 0 else 0.0
     snr_lineal = potencia_senal / potencia_ruido if potencia_ruido > 0 else math.inf
-    snr_db = 10 * math.log10(snr_lineal) if np.isfinite(snr_lineal) and snr_lineal > 0 else math.inf
+    snr_db = (
+        10 * math.log10(snr_lineal)
+        if np.isfinite(snr_lineal) and snr_lineal > 0
+        else math.inf
+    )
     errores = contar_errores(bits_tx, bits_rx)
     ber = calcular_ber(bits_tx, bits_rx)
 
@@ -107,7 +116,10 @@ def construir_tabla_muestras(
         "Ruido n": ruido[:n],
         "Valor recibido r": recibido[:n],
         "Bit Rx": list(bits_rx[:n]),
-        "Estado": ["Correcto" if a == b else "Error" for a, b in zip(bits_tx[:n], bits_rx[:n])],
+        "Estado": [
+            "Correcto" if a == b else "Error"
+            for a, b in zip(bits_tx[:n], bits_rx[:n])
+        ],
     }
 
     return pd.DataFrame(datos)
@@ -184,9 +196,7 @@ def graficar_senal_transmitida(simbolos: np.ndarray, max_muestras: int) -> None:
 
 def graficar_ruido_tiempo(ruido: np.ndarray, max_muestras: int) -> None:
     """
-    Corrección implementada:
-    - Se mantiene la idea de ruido en función del tiempo/índice.
-    - Se representa como una onda de ruido sobre el eje temporal.
+    Representa el ruido en función del tiempo o índice de muestra.
     """
     n = min(max_muestras, len(ruido))
     x = np.arange(1, n + 1)
@@ -202,13 +212,14 @@ def graficar_ruido_tiempo(ruido: np.ndarray, max_muestras: int) -> None:
     plt.close(fig)
 
 
-def graficar_superposicion(simbolos: np.ndarray, ruido: np.ndarray, recibido: np.ndarray, max_muestras: int) -> None:
+def graficar_superposicion(
+    simbolos: np.ndarray,
+    ruido: np.ndarray,
+    recibido: np.ndarray,
+    max_muestras: int,
+) -> None:
     """
-    Correcciones implementadas:
-    - Se conserva el índice en el eje X.
-    - Se mantiene la gráfica 3.
-    - Se agrega la onda de ruido.
-    - Se superponen las magnitudes relevantes.
+    Superpone señal transmitida, ruido y señal recibida.
     """
     n = min(max_muestras, len(simbolos))
     x = np.arange(1, n + 1)
@@ -226,9 +237,13 @@ def graficar_superposicion(simbolos: np.ndarray, ruido: np.ndarray, recibido: np
     plt.close(fig)
 
 
-def graficar_recepcion_y_umbral(recibido: np.ndarray, bits_rx: str, max_muestras: int) -> None:
+def graficar_recepcion_y_umbral(
+    recibido: np.ndarray,
+    bits_rx: str,
+    max_muestras: int,
+) -> None:
     """
-    Se conserva la línea roja del umbral porque el usuario indicó que no debe quitarse.
+    Muestra la señal recibida y el umbral de decisión.
     """
     n = min(max_muestras, len(recibido))
     x = np.arange(1, n + 1)
@@ -249,10 +264,18 @@ def graficar_recepcion_y_umbral(recibido: np.ndarray, bits_rx: str, max_muestras
             "Índice": x,
             "r": recibido[:n],
             "Decisión": list(bits_rx[:n]),
-            "Regla aplicada": ["r ≥ 0 → 1" if valor >= 0 else "r < 0 → 0" for valor in recibido[:n]],
+            "Regla aplicada": [
+                "r ≥ 0 → 1" if valor >= 0 else "r < 0 → 0"
+                for valor in recibido[:n]
+            ],
         }
     )
-    st.dataframe(tabla_decision, use_container_width=True, hide_index=True)
+
+    st.dataframe(
+        tabla_decision,
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 # ============================================================
@@ -512,7 +535,10 @@ modifica la señal transmitida y cómo esa modificación puede producir errores 
                     step=1,
                     key="g1_semilla_datos",
                 )
-                bits_tx = generar_bits_aleatorios(int(cantidad_bits), semilla=int(semilla_datos))
+                bits_tx = generar_bits_aleatorios(
+                    int(cantidad_bits),
+                    semilla=int(semilla_datos),
+                )
                 st.code(bits_tx, language="text")
 
             sigma = st.slider(
@@ -567,15 +593,31 @@ modifica la señal transmitida y cómo esa modificación puede producir errores 
                 semilla=int(semilla_ruido),
             )
 
-            metricas = calcular_metricas(simbolos, ruido, bits_tx, bits_rx)
-            tabla = construir_tabla_muestras(bits_tx, bits_rx, simbolos, ruido, recibido, int(max_muestras))
+            metricas = calcular_metricas(
+                simbolos,
+                ruido,
+                bits_tx,
+                bits_rx,
+            )
+
+            tabla = construir_tabla_muestras(
+                bits_tx,
+                bits_rx,
+                simbolos,
+                ruido,
+                recibido,
+                int(max_muestras),
+            )
 
             st.subheader("Métricas principales")
 
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Errores", f"{metricas['errores']}")
             m2.metric("BER", f"{metricas['ber']:.6f}")
-            m3.metric("SNR (dB)", "∞" if not np.isfinite(metricas["snr_db"]) else f"{metricas['snr_db']:.3f}")
+            m3.metric(
+                "SNR (dB)",
+                "∞" if not np.isfinite(metricas["snr_db"]) else f"{metricas['snr_db']:.3f}",
+            )
             m4.metric("Potencia de ruido", f"{metricas['potencia_ruido']:.6f}")
 
             st.subheader("Gráficas")
@@ -586,7 +628,12 @@ modifica la señal transmitida y cómo esa modificación puede producir errores 
             graficar_recepcion_y_umbral(recibido, bits_rx, int(max_muestras))
 
             st.subheader("Tabla de muestras")
-            st.dataframe(tabla, use_container_width=True, hide_index=True)
+
+            st.dataframe(
+                tabla,
+                use_container_width=True,
+                hide_index=True,
+            )
 
             st.info(
                 f"""
@@ -600,13 +647,13 @@ Cuadrito de interpretación:
 """
             )
 
-            st.session_state["g1_bits_tx"] = bits_tx
-            st.session_state["g1_bits_rx"] = bits_rx
-            st.session_state["g1_simbolos"] = simbolos
-            st.session_state["g1_ruido"] = ruido
-            st.session_state["g1_recibido"] = recibido
-            st.session_state["g1_metricas"] = metricas
-            st.session_state["g1_sigma"] = sigma
+            st.session_state["g1_bits_tx_resultado"] = bits_tx
+            st.session_state["g1_bits_rx_resultado"] = bits_rx
+            st.session_state["g1_simbolos_resultado"] = simbolos
+            st.session_state["g1_ruido_resultado"] = ruido
+            st.session_state["g1_recibido_resultado"] = recibido
+            st.session_state["g1_metricas_resultado"] = metricas
+            st.session_state["g1_sigma_resultado"] = sigma
 
     # ========================================================
     # ANÁLISIS Y DINÁMICA
@@ -622,48 +669,73 @@ y cómo se relacionan entre sí.
 """
         )
 
-        if "g1_metricas" not in st.session_state:
+        if "g1_metricas_resultado" not in st.session_state:
             st.info("Ejecute primero la simulación interactiva para ver el análisis automático.")
         else:
-            metricas = st.session_state["g1_metricas"]
-            sigma = st.session_state["g1_sigma"]
+            metricas = st.session_state["g1_metricas_resultado"]
+            sigma = st.session_state["g1_sigma_resultado"]
 
             st.markdown(analizar_resultados(metricas, sigma))
 
             st.subheader("Experimento rápido: efecto de cambiar σ")
 
             valores_sigma = [0.10, 0.30, 0.50, 0.80, 1.00]
-            bits_base = st.session_state["g1_bits_tx"]
+            bits_base = st.session_state["g1_bits_tx_resultado"]
 
             filas = []
+
             for i, sig in enumerate(valores_sigma):
                 bits_rx_tmp, simbolos_tmp, ruido_tmp, _ = transmitir_awgn(
                     bits_base,
                     sigma=sig,
                     semilla=500 + i,
                 )
-                metricas_tmp = calcular_metricas(simbolos_tmp, ruido_tmp, bits_base, bits_rx_tmp)
+
+                metricas_tmp = calcular_metricas(
+                    simbolos_tmp,
+                    ruido_tmp,
+                    bits_base,
+                    bits_rx_tmp,
+                )
+
                 filas.append(
                     {
                         "σ": sig,
                         "σ²": sig**2,
                         "Errores": metricas_tmp["errores"],
                         "BER": metricas_tmp["ber"],
-                        "SNR dB": metricas_tmp["snr_db"] if np.isfinite(metricas_tmp["snr_db"]) else np.nan,
+                        "SNR dB": (
+                            metricas_tmp["snr_db"]
+                            if np.isfinite(metricas_tmp["snr_db"])
+                            else np.nan
+                        ),
                     }
                 )
 
             df_comp = pd.DataFrame(filas)
-            st.dataframe(df_comp, use_container_width=True, hide_index=True)
+
+            st.dataframe(
+                df_comp,
+                use_container_width=True,
+                hide_index=True,
+            )
 
             fig, ax = plt.subplots(figsize=(8, 4))
+
             df_plot = df_comp.copy()
             df_plot["BER ajustada"] = df_plot["BER"].replace(0, 1e-6)
-            ax.semilogy(df_plot["σ"], df_plot["BER ajustada"], marker="o")
+
+            ax.semilogy(
+                df_plot["σ"],
+                df_plot["BER ajustada"],
+                marker="o",
+            )
+
             ax.set_title("Efecto de σ sobre la BER")
             ax.set_xlabel("σ")
-            ax.set_ylabel("BER (escala logarítmica)")
+            ax.set_ylabel("BER en escala logarítmica")
             ax.grid(True, which="both")
+
             st.pyplot(fig)
             plt.close(fig)
 
