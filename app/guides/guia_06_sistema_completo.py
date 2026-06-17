@@ -1630,10 +1630,10 @@ lectura. Las métricas anteriores sí se calculan usando toda la secuencia simul
 
             st.session_state["g6_df_resultados"] = df_resultados
             st.session_state["g6_detalles"] = detalles
-            st.session_state["g6_datos_originales"] = datos
-            st.session_state["g6_sigma"] = sigma
-            st.session_state["g6_generador"] = generador_crc
-            st.session_state["g6_payload"] = tamano_payload
+            st.session_state["g6_datos_originales_resultado"] = datos
+            st.session_state["g6_sigma_resultado"] = sigma
+            st.session_state["g6_generador_resultado"] = generador_crc
+            st.session_state["g6_payload_resultado"] = tamano_payload
 
     with tabs[4]:
         st.header("Comparación estadística del sistema Hamming + CRC")
