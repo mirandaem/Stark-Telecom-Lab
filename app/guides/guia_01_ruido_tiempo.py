@@ -37,12 +37,19 @@ def transmitir_awgn(
 ) -> Tuple[str, np.ndarray, np.ndarray, np.ndarray]:
     """
     Modelo base:
+
         r = s + n
 
     donde:
         s = símbolo transmitido
         n = ruido gaussiano
         r = valor recibido
+
+    En esta app se usa BPSK normalizado:
+        0 -> -1
+        1 -> +1
+
+    Por ello, la amplitud se interpreta como amplitud normalizada.
     """
     if len(bits) == 0:
         return "", np.array([]), np.array([]), np.array([])
@@ -60,15 +67,19 @@ def transmitir_awgn(
 
 def contar_errores(bits_tx: str, bits_rx: str) -> int:
     longitud = min(len(bits_tx), len(bits_rx))
+
     if longitud == 0:
         return 0
+
     return sum(1 for a, b in zip(bits_tx[:longitud], bits_rx[:longitud]) if a != b)
 
 
 def calcular_ber(bits_tx: str, bits_rx: str) -> float:
     longitud = min(len(bits_tx), len(bits_rx))
+
     if longitud == 0:
         return 0.0
+
     return contar_errores(bits_tx, bits_rx) / longitud
 
 
@@ -80,12 +91,18 @@ def calcular_metricas(
 ) -> dict:
     potencia_senal = float(np.mean(simbolos**2)) if len(simbolos) > 0 else 0.0
     potencia_ruido = float(np.mean(ruido**2)) if len(ruido) > 0 else 0.0
-    snr_lineal = potencia_senal / potencia_ruido if potencia_ruido > 0 else math.inf
-    snr_db = (
-        10 * math.log10(snr_lineal)
-        if np.isfinite(snr_lineal) and snr_lineal > 0
-        else math.inf
-    )
+
+    if potencia_ruido > 0:
+        snr_lineal = potencia_senal / potencia_ruido
+        snr_db = (
+            10 * math.log10(snr_lineal)
+            if np.isfinite(snr_lineal) and snr_lineal > 0
+            else math.inf
+        )
+    else:
+        snr_lineal = math.inf
+        snr_db = math.inf
+
     errores = contar_errores(bits_tx, bits_rx)
     ber = calcular_ber(bits_tx, bits_rx)
 
@@ -110,11 +127,11 @@ def construir_tabla_muestras(
     n = min(max_muestras, len(bits_tx))
 
     datos = {
-        "Índice": np.arange(1, n + 1),
+        "Índice de muestra [n]": np.arange(1, n + 1),
         "Bit Tx": list(bits_tx[:n]),
-        "Símbolo Tx": simbolos[:n],
-        "Ruido n": ruido[:n],
-        "Valor recibido r": recibido[:n],
+        "Símbolo Tx s[n] [amplitud normalizada]": simbolos[:n],
+        "Ruido n[n] [amplitud normalizada]": ruido[:n],
+        "Valor recibido r[n] [amplitud normalizada]": recibido[:n],
         "Bit Rx": list(bits_rx[:n]),
         "Estado": [
             "Correcto" if a == b else "Error"
@@ -133,8 +150,9 @@ def analizar_resultados(metricas: dict, sigma: float) -> str:
     interpretacion = []
 
     interpretacion.append(
-        f"Se transmitió la secuencia a través de un canal AWGN con desviación estándar σ = {sigma:.3f}, "
-        f"por lo que la varianza del ruido es σ² = {sigma**2:.6f}."
+        f"Se transmitió la secuencia a través de un canal AWGN con desviación estándar "
+        f"σ = {sigma:.3f} [amplitud normalizada], por lo que la varianza del ruido es "
+        f"σ² = {sigma**2:.6f} [amplitud normalizada²]."
     )
 
     if np.isfinite(snr_db):
@@ -144,33 +162,42 @@ def analizar_resultados(metricas: dict, sigma: float) -> str:
         )
     else:
         interpretacion.append(
-            "La SNR calculada resultó infinita porque la potencia de ruido fue cero o numéricamente despreciable."
+            "La SNR calculada resultó infinita porque la potencia de ruido fue cero "
+            "o numéricamente despreciable."
         )
 
     interpretacion.append(
-        f"En esta ejecución se observaron {errores} errores de bit y una BER de {ber:.6f}."
+        f"En esta ejecución se observaron {errores} errores de bit y una BER de {ber:.6f} "
+        "[adimensional]. La BER no tiene unidad física porque es una razón entre bits "
+        "erróneos y bits evaluados."
     )
 
     if errores == 0:
         interpretacion.append(
             "No se observaron errores en la secuencia analizada. Esto no significa que el canal sea perfecto, "
-            "sino que, bajo esta semilla y esta longitud de prueba, el ruido no desplazó ninguna muestra al lado incorrecto del umbral."
+            "sino que, bajo esta semilla y esta longitud de prueba, el ruido no desplazó ninguna muestra "
+            "al lado incorrecto del umbral."
         )
     elif ber < 0.1:
         interpretacion.append(
-            "La BER es baja, lo que indica que el ruido alteró algunas muestras, pero la mayoría de decisiones binarias siguieron siendo correctas."
+            "La BER es baja, lo que indica que el ruido alteró algunas muestras, pero la mayoría "
+            "de decisiones binarias siguieron siendo correctas."
         )
     else:
         interpretacion.append(
-            "La BER es relativamente alta, lo que indica que el ruido está afectando de manera significativa la decisión en el receptor."
+            "La BER es relativamente alta, lo que indica que el ruido está afectando de manera significativa "
+            "la decisión en el receptor."
         )
 
     interpretacion.append(
-        "La semilla controla la reproducibilidad del experimento: si no cambia la semilla, el generador aleatorio produce la misma realización de ruido y, por tanto, se repiten los mismos resultados."
+        "La semilla controla la reproducibilidad del experimento: si no cambia la semilla, el generador "
+        "aleatorio produce la misma realización de ruido y, por tanto, se repiten los mismos resultados."
     )
 
     interpretacion.append(
-        "En esta guía se observa una aproximación discreta de un proceso de ruido en el tiempo: el ruido se modela como una secuencia de muestras que puede graficarse respecto al índice temporal de observación."
+        "En esta guía se observa una aproximación discreta de un proceso de ruido en el tiempo. "
+        "El eje horizontal representa el índice de muestra [n], no segundos, porque la app no define "
+        "una frecuencia de muestreo física."
     )
 
     return "\n\n".join(interpretacion)
@@ -186,17 +213,23 @@ def graficar_senal_transmitida(simbolos: np.ndarray, max_muestras: int) -> None:
 
     fig, ax = plt.subplots(figsize=(10, 3.8))
     ax.stem(x, simbolos[:n], basefmt=" ")
-    ax.set_title("Gráfica 1. Señal transmitida (símbolos BPSK) vs índice")
-    ax.set_xlabel("Índice de muestra")
-    ax.set_ylabel("Amplitud")
+    ax.set_title("Gráfica 1. Señal transmitida BPSK vs índice de muestra")
+    ax.set_xlabel("Índice de muestra [n]")
+    ax.set_ylabel("Amplitud normalizada")
     ax.grid(True)
     st.pyplot(fig)
     plt.close(fig)
 
+    st.caption(
+        "Los símbolos BPSK se representan con amplitud normalizada: bit 0 → -1 y bit 1 → +1."
+    )
+
 
 def graficar_ruido_tiempo(ruido: np.ndarray, max_muestras: int) -> None:
     """
-    Representa el ruido en función del tiempo o índice de muestra.
+    Representa el ruido en función del índice de muestra.
+
+    Se mantiene la forma visual original: línea con puntos.
     """
     n = min(max_muestras, len(ruido))
     x = np.arange(1, n + 1)
@@ -204,12 +237,17 @@ def graficar_ruido_tiempo(ruido: np.ndarray, max_muestras: int) -> None:
     fig, ax = plt.subplots(figsize=(10, 3.8))
     ax.plot(x, ruido[:n], marker="o")
     ax.axhline(0, linewidth=1)
-    ax.set_title("Gráfica 2. Señal de ruido vs tiempo (índice de muestra)")
-    ax.set_xlabel("Índice de muestra")
-    ax.set_ylabel("Amplitud del ruido")
+    ax.set_title("Gráfica 2. Señal de ruido AWGN vs índice de muestra")
+    ax.set_xlabel("Índice de muestra [n]")
+    ax.set_ylabel("Ruido n[n] [amplitud normalizada]")
     ax.grid(True)
     st.pyplot(fig)
     plt.close(fig)
+
+    st.caption(
+        "El ruido se muestra como una secuencia de muestras generadas por el canal AWGN. "
+        "El eje horizontal representa el índice de muestra [n], no segundos."
+    )
 
 
 def graficar_superposicion(
@@ -220,21 +258,31 @@ def graficar_superposicion(
 ) -> None:
     """
     Superpone señal transmitida, ruido y señal recibida.
+
+    Se mantiene la forma visual original:
+    - señal transmitida con stem;
+    - ruido con línea y puntos;
+    - señal recibida con marcadores tipo x.
     """
     n = min(max_muestras, len(simbolos))
     x = np.arange(1, n + 1)
 
     fig, ax = plt.subplots(figsize=(10, 4.2))
-    ax.stem(x, simbolos[:n], basefmt=" ", label="Señal transmitida s")
-    ax.plot(x, ruido[:n], marker="o", label="Ruido n")
-    ax.scatter(x, recibido[:n], marker="x", label="Señal recibida r = s + n")
+    ax.stem(x, simbolos[:n], basefmt=" ", label="Señal transmitida s[n]")
+    ax.plot(x, ruido[:n], marker="o", label="Ruido n[n]")
+    ax.scatter(x, recibido[:n], marker="x", label="Señal recibida r[n] = s[n] + n[n]")
     ax.set_title("Gráfica 3. Superposición de señal transmitida, ruido y señal recibida")
-    ax.set_xlabel("Índice de muestra")
-    ax.set_ylabel("Amplitud")
+    ax.set_xlabel("Índice de muestra [n]")
+    ax.set_ylabel("Amplitud normalizada")
     ax.grid(True)
     ax.legend()
     st.pyplot(fig)
     plt.close(fig)
+
+    st.caption(
+        "La señal recibida se obtiene mediante el modelo r[n] = s[n] + n[n]. "
+        "La amplitud se expresa de forma normalizada."
+    )
 
 
 def graficar_recepcion_y_umbral(
@@ -244,28 +292,40 @@ def graficar_recepcion_y_umbral(
 ) -> None:
     """
     Muestra la señal recibida y el umbral de decisión.
+
+    Se mantiene la forma visual original: línea con puntos.
     """
     n = min(max_muestras, len(recibido))
     x = np.arange(1, n + 1)
 
     fig, ax = plt.subplots(figsize=(10, 4.0))
-    ax.plot(x, recibido[:n], marker="o", label="Valores recibidos r")
-    ax.axhline(0, color="red", linestyle="--", linewidth=1.5, label="Umbral de decisión")
+    ax.plot(x, recibido[:n], marker="o", label="Valores recibidos r[n]")
+    ax.axhline(
+        0,
+        color="red",
+        linestyle="--",
+        linewidth=1.5,
+        label="Umbral de decisión = 0",
+    )
     ax.set_title("Gráfica 4. Señal recibida y umbral de decisión")
-    ax.set_xlabel("Índice de muestra")
-    ax.set_ylabel("Amplitud")
+    ax.set_xlabel("Índice de muestra [n]")
+    ax.set_ylabel("Valor recibido r[n] [amplitud normalizada]")
     ax.grid(True)
     ax.legend()
     st.pyplot(fig)
     plt.close(fig)
 
+    st.caption(
+        "La línea roja representa el umbral de decisión. Si r[n] ≥ 0 se decide 1; si r[n] < 0 se decide 0."
+    )
+
     tabla_decision = pd.DataFrame(
         {
-            "Índice": x,
-            "r": recibido[:n],
+            "Índice de muestra [n]": x,
+            "r[n] [amplitud normalizada]": recibido[:n],
             "Decisión": list(bits_rx[:n]),
             "Regla aplicada": [
-                "r ≥ 0 → 1" if valor >= 0 else "r < 0 → 0"
+                "r[n] ≥ 0 → 1" if valor >= 0 else "r[n] < 0 → 0"
                 for valor in recibido[:n]
             ],
         }
@@ -275,6 +335,38 @@ def graficar_recepcion_y_umbral(
         tabla_decision,
         use_container_width=True,
         hide_index=True,
+    )
+
+
+def graficar_ber_vs_sigma(df_comp: pd.DataFrame) -> None:
+    """
+    Gráfica del experimento rápido BER vs σ.
+
+    Se mantiene como curva logarítmica con marcadores, igual que la estructura original,
+    pero con etiquetas académicas.
+    """
+    fig, ax = plt.subplots(figsize=(8, 4))
+
+    df_plot = df_comp.copy()
+    df_plot["BER ajustada"] = df_plot["BER"].replace(0, 1e-6)
+
+    ax.semilogy(
+        df_plot["σ"],
+        df_plot["BER ajustada"],
+        marker="o",
+    )
+
+    ax.set_title("Efecto de σ sobre la BER")
+    ax.set_xlabel("Desviación estándar del ruido σ [amplitud normalizada]")
+    ax.set_ylabel("BER [adimensional, escala logarítmica]")
+    ax.grid(True, which="both")
+
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.caption(
+        "La BER es adimensional porque se calcula como la razón entre bits erróneos y bits evaluados. "
+        "Los valores cero se ajustan visualmente para poder representarlos en escala logarítmica."
     )
 
 
@@ -333,6 +425,7 @@ básico, la representación BPSK de los bits y el proceso de decisión en el rec
 5. Analizar el efecto de la semilla en la reproducibilidad de la simulación.
 6. Calcular e interpretar BER, potencia de ruido y SNR.
 7. Relacionar la teoría del ruido con las gráficas obtenidas en la app.
+8. Reconocer las unidades o naturaleza de las magnitudes graficadas: bits, dB, amplitud normalizada e índice de muestra.
 """
         )
 
@@ -363,6 +456,9 @@ Esta representación permite estudiar de forma clara el efecto del ruido sobre l
 ya que el receptor deberá decidir si el valor recibido corresponde al símbolo asociado al 0 o al 1
 (Proakis & Salehi, 2008).
 
+Como los símbolos se modelan con valores normalizados, las gráficas de amplitud no se expresan
+en voltios. Por eso se indica **amplitud normalizada** en los ejes verticales.
+
 ### 2. Modelo del canal con ruido
 
 Cuando una señal atraviesa un canal, puede verse afectada por perturbaciones aleatorias. En esta guía
@@ -392,10 +488,19 @@ $$
 $$
 
 La desviación estándar del ruido se representa con $\\sigma$ y mide la dispersión de las muestras
-respecto a la media. La varianza se expresa como:
+respecto a la media. En esta app, $\\sigma$ se interpreta en unidades de **amplitud normalizada**,
+porque la señal transmitida se representa con símbolos +1 y -1.
+
+La varianza se expresa como:
 
 $$
 \\sigma^2
+$$
+
+Por tanto, en las métricas se interpreta como:
+
+$$
+\\sigma^2 \\; [\\text{amplitud normalizada}^2]
 $$
 
 Cuando $\\sigma$ aumenta, las muestras de ruido se dispersan más alrededor de cero. Como consecuencia,
@@ -426,8 +531,10 @@ donde:
 - $N_{errores}$ es el número de bits recibidos incorrectamente;
 - $N_{bits}$ es la cantidad total de bits analizados.
 
-La BER permite evaluar qué tan afectada fue la transmisión por el ruido. Si el canal está poco afectado,
-la BER será baja; si el ruido es fuerte, la BER tenderá a aumentar (Forouzan, 2013; Stallings, 2015).
+La BER permite evaluar qué tan afectada fue la transmisión por el ruido. No tiene unidades físicas,
+porque es una razón entre cantidades de bits. Por eso se interpreta como **BER [adimensional]**.
+Si el canal está poco afectado, la BER será baja; si el ruido es fuerte, la BER tenderá a aumentar
+(Forouzan, 2013; Stallings, 2015).
 
 ### 6. Relación señal-ruido
 
@@ -443,8 +550,9 @@ $$
 SNR_{dB} = 10 \\log_{10}(SNR)
 $$
 
-Una SNR alta indica que la señal domina sobre el ruido; una SNR baja indica que el ruido tiene un peso
-más importante y puede afectar la calidad de la recepción (Proakis & Salehi, 2008).
+La SNR expresada en decibeles se reporta como **SNR [dB]**. Una SNR alta indica que la señal domina
+sobre el ruido; una SNR baja indica que el ruido tiene un peso más importante y puede afectar la calidad
+de la recepción (Proakis & Salehi, 2008).
 
 ### 7. Semilla y reproducibilidad
 
@@ -456,9 +564,15 @@ comparar observaciones de forma controlada.
 ### 8. Interpretación temporal del ruido
 
 Aunque el ruido es un proceso aleatorio, en simulación suele observarse como una secuencia de muestras
-a lo largo del tiempo o del índice de observación. Por ello, en esta guía se muestran gráficas en las
-que el eje horizontal representa el índice de muestra. Esto permite estudiar el comportamiento del ruido
-en el tiempo y su influencia directa sobre la señal recibida.
+a lo largo del tiempo o del índice de observación. En esta app no se define una frecuencia de muestreo
+física; por esa razón, el eje horizontal se expresa como:
+
+$$
+\\text{Índice de muestra } [n]
+$$
+
+Esto permite estudiar el comportamiento del ruido en el tiempo de forma discreta y su influencia directa
+sobre la señal recibida.
 """
         )
 
@@ -471,6 +585,8 @@ Cuadro de interpretación teórica:
 - Si la señal recibida cruza el umbral incorrecto, aparece un error de bit.
 - Si aumentan los errores de bit, aumenta la BER.
 - Si la potencia de ruido aumenta, disminuye la SNR.
+- Las amplitudes de la app son normalizadas, no voltios.
+- El eje horizontal de las gráficas es el índice de muestra [n], no segundos.
 """
         )
 
@@ -522,7 +638,7 @@ modifica la señal transmitida y cómo esa modificación puede producir errores 
                 bits_tx = limpiar_bits(bits_tx)
             else:
                 cantidad_bits = st.selectbox(
-                    "Cantidad de bits",
+                    "Cantidad de bits [bits]",
                     [8, 16, 32, 64, 128],
                     index=1,
                     key="g1_cantidad_bits",
@@ -542,7 +658,7 @@ modifica la señal transmitida y cómo esa modificación puede producir errores 
                 st.code(bits_tx, language="text")
 
             sigma = st.slider(
-                "Desviación estándar del ruido σ",
+                "Desviación estándar del ruido σ [amplitud normalizada]",
                 min_value=0.0,
                 max_value=2.0,
                 value=0.35,
@@ -560,7 +676,7 @@ modifica la señal transmitida y cómo esa modificación puede producir errores 
             )
 
             max_muestras = st.slider(
-                "Cantidad de muestras a mostrar en gráficas",
+                "Cantidad de muestras a mostrar en gráficas [muestras]",
                 min_value=4,
                 max_value=40,
                 value=16,
@@ -577,12 +693,13 @@ modifica la señal transmitida y cómo esa modificación puede producir errores 
 
 - La semilla permite repetir exactamente el mismo experimento.
 - La desviación estándar $\\sigma$ controla la dispersión del ruido.
-- La varianza del ruido es $\\sigma^2$.
+- En esta app, $\\sigma$ se expresa en amplitud normalizada.
+- La varianza del ruido es $\\sigma^2$ y se interpreta como amplitud normalizada².
 - El número de muestras visibles afecta solamente la visualización, no la teoría del modelo.
 """
             )
 
-            st.metric("Varianza del ruido σ²", f"{sigma**2:.6f}")
+            st.metric("Varianza del ruido σ² [amplitud normalizada²]", f"{sigma**2:.6f}")
 
         if not validar_bits(bits_tx):
             st.error("La secuencia debe contener únicamente 0 y 1.")
@@ -612,13 +729,16 @@ modifica la señal transmitida y cómo esa modificación puede producir errores 
             st.subheader("Métricas principales")
 
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Errores", f"{metricas['errores']}")
-            m2.metric("BER", f"{metricas['ber']:.6f}")
+            m1.metric("Errores [bits]", f"{metricas['errores']}")
+            m2.metric("BER [adimensional]", f"{metricas['ber']:.6f}")
             m3.metric(
-                "SNR (dB)",
+                "SNR [dB]",
                 "∞" if not np.isfinite(metricas["snr_db"]) else f"{metricas['snr_db']:.3f}",
             )
-            m4.metric("Potencia de ruido", f"{metricas['potencia_ruido']:.6f}")
+            m4.metric(
+                "Potencia de ruido [amplitud normalizada²]",
+                f"{metricas['potencia_ruido']:.6f}",
+            )
 
             st.subheader("Gráficas")
 
@@ -635,13 +755,16 @@ modifica la señal transmitida y cómo esa modificación puede producir errores 
                 hide_index=True,
             )
 
+            snr_texto = "∞" if not np.isfinite(metricas["snr_db"]) else f"{metricas['snr_db']:.3f} dB"
+
             st.info(
                 f"""
 Cuadrito de interpretación:
 
 - Se transmitieron {len(bits_tx)} bits.
-- Con σ = {sigma:.3f}, la varianza del ruido fue σ² = {sigma**2:.6f}.
-- La BER observada fue {metricas['ber']:.6f}.
+- Con σ = {sigma:.3f} [amplitud normalizada], la varianza del ruido fue σ² = {sigma**2:.6f} [amplitud normalizada²].
+- La BER observada fue {metricas['ber']:.6f} [adimensional].
+- La SNR estimada fue {snr_texto}.
 - Si repite la simulación con la misma semilla del ruido, obtendrá la misma forma de onda y los mismos resultados.
 - Si aumenta σ, la onda de ruido tiende a alejar más la señal recibida de la señal transmitida.
 """
@@ -700,11 +823,13 @@ y cómo se relacionan entre sí.
 
                 filas.append(
                     {
+                        "σ [amplitud normalizada]": sig,
                         "σ": sig,
-                        "σ²": sig**2,
-                        "Errores": metricas_tmp["errores"],
+                        "σ² [amplitud normalizada²]": sig**2,
+                        "Errores [bits]": metricas_tmp["errores"],
+                        "BER [adimensional]": metricas_tmp["ber"],
                         "BER": metricas_tmp["ber"],
-                        "SNR dB": (
+                        "SNR [dB]": (
                             metricas_tmp["snr_db"]
                             if np.isfinite(metricas_tmp["snr_db"])
                             else np.nan
@@ -715,29 +840,20 @@ y cómo se relacionan entre sí.
             df_comp = pd.DataFrame(filas)
 
             st.dataframe(
-                df_comp,
+                df_comp[
+                    [
+                        "σ [amplitud normalizada]",
+                        "σ² [amplitud normalizada²]",
+                        "Errores [bits]",
+                        "BER [adimensional]",
+                        "SNR [dB]",
+                    ]
+                ],
                 use_container_width=True,
                 hide_index=True,
             )
 
-            fig, ax = plt.subplots(figsize=(8, 4))
-
-            df_plot = df_comp.copy()
-            df_plot["BER ajustada"] = df_plot["BER"].replace(0, 1e-6)
-
-            ax.semilogy(
-                df_plot["σ"],
-                df_plot["BER ajustada"],
-                marker="o",
-            )
-
-            ax.set_title("Efecto de σ sobre la BER")
-            ax.set_xlabel("σ")
-            ax.set_ylabel("BER en escala logarítmica")
-            ax.grid(True, which="both")
-
-            st.pyplot(fig)
-            plt.close(fig)
+            graficar_ber_vs_sigma(df_comp)
 
             st.markdown(
                 """
@@ -748,6 +864,9 @@ Interpretación del experimento:
 - Al aumentar la varianza del ruido, la señal recibida presenta mayor dispersión.
 - Esa mayor dispersión eleva la probabilidad de cruzar el umbral incorrecto.
 - Por ello, en general, la BER tiende a aumentar cuando σ aumenta.
+- La BER se muestra como una magnitud adimensional.
+- La SNR se expresa en dB.
+- σ se interpreta en amplitud normalizada porque los símbolos BPSK se modelan con -1 y +1.
 """
             )
 
@@ -764,6 +883,7 @@ Interpretación del experimento:
 1. Ingrese una secuencia binaria de 8 a 16 bits.
 2. Identifique qué símbolo BPSK corresponde a cada bit.
 3. Observe la gráfica 1 y describa cómo se representan los bits 0 y 1.
+4. Explique por qué el eje vertical se expresa como amplitud normalizada.
 
 ### Actividad 2. Observación del ruido
 
@@ -771,6 +891,7 @@ Interpretación del experimento:
 2. Ejecute la simulación con σ = 0.10.
 3. Luego repita con σ = 0.80.
 4. Compare la gráfica 2 en ambos casos y describa cómo cambió la amplitud del ruido.
+5. Explique por qué σ se mide en amplitud normalizada dentro de esta app.
 
 ### Actividad 3. Superposición de señal y ruido
 
@@ -801,6 +922,7 @@ Interpretación del experimento:
 - ¿Qué representa la varianza σ² en este contexto?
 - ¿Por qué la BER no siempre es la misma al cambiar la semilla?
 - ¿Por qué una SNR baja suele asociarse con una BER mayor?
+- ¿Por qué el eje horizontal se llama índice de muestra [n] y no tiempo en segundos?
 """
         )
 
@@ -818,8 +940,10 @@ del ruido. El modelo AWGN permite estudiar ese fenómeno de forma controlada y o
 aleatoria modifica la señal recibida.
 
 También debe quedar claro que la desviación estándar $\\sigma$ y la varianza $\\sigma^2$ determinan la
-intensidad estadística del ruido. A mayor dispersión, mayor probabilidad de error. Esta relación se refleja
-en la BER y en la SNR, dos métricas esenciales para el análisis de sistemas de telecomunicaciones digitales.
+intensidad estadística del ruido. En esta app, ambas magnitudes se interpretan con respecto a una amplitud
+normalizada, porque la señal BPSK se modela con niveles -1 y +1. A mayor dispersión, mayor probabilidad
+de error. Esta relación se refleja en la BER y en la SNR, dos métricas esenciales para el análisis de
+sistemas de telecomunicaciones digitales.
 
 Finalmente, la guía permite comprender que la semilla es una herramienta fundamental para repetir experimentos
 y que la observación temporal del ruido ayuda a construir una intuición inicial sólida antes de avanzar hacia
