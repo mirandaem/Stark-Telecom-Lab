@@ -146,100 +146,8 @@ def binario_a_polinomio(bits: str, variable: str = "x") -> str:
 
 
 # ============================================================
-# Tablas didácticas
+# Tablas teóricas
 # ============================================================
-
-def construir_tabla_elementos_crc(
-    datos: str,
-    generador: str,
-    residuo: str,
-    trama: str,
-) -> pd.DataFrame:
-    grado_r = len(generador) - 1
-    datos_desplazados = datos + ("0" * grado_r)
-
-    return pd.DataFrame(
-        {
-            "Elemento": [
-                "m",
-                "M(x)",
-                "G(x)",
-                "r",
-                "M(x)x^r",
-                "R(x)",
-                "t = m || R",
-                "T(x)",
-            ],
-            "Significado": [
-                "Mensaje binario original",
-                "Polinomio asociado al mensaje",
-                "Polinomio generador CRC",
-                "Grado del generador y cantidad de bits CRC",
-                "Mensaje desplazado r posiciones",
-                "Residuo obtenido por división módulo 2",
-                "Trama binaria transmitida",
-                "Polinomio de la trama transmitida",
-            ],
-            "Cómo se obtiene": [
-                "Lo ingresa el usuario",
-                "Se interpreta cada bit 1 como una potencia de x",
-                "Lo ingresa el usuario como cadena binaria",
-                "r = longitud(G) - 1",
-                "Se agregan r ceros al final del mensaje",
-                "R(x) = M(x)x^r mod G(x)",
-                "Se concatena el mensaje con el residuo CRC",
-                "T(x) = M(x)x^r + R(x), con suma módulo 2",
-            ],
-            "Valor en este ejemplo": [
-                datos,
-                binario_a_polinomio(datos),
-                f"{generador} = {binario_a_polinomio(generador)}",
-                grado_r,
-                datos_desplazados,
-                f"{residuo} = {binario_a_polinomio(residuo)}",
-                trama,
-                binario_a_polinomio(trama),
-            ],
-        }
-    )
-
-
-def construir_tabla_grado_generador() -> pd.DataFrame:
-    ejemplos = ["1011", "10011", "11001", "100001"]
-    filas = []
-
-    for generador in ejemplos:
-        grado_r = len(generador) - 1
-        filas.append(
-            {
-                "Generador binario": generador,
-                "G(x)": binario_a_polinomio(generador),
-                "Longitud del generador": len(generador),
-                "r = longitud - 1": grado_r,
-                "Ceros agregados al mensaje": grado_r,
-                "Bits CRC por trama": grado_r,
-            }
-        )
-
-    return pd.DataFrame(filas)
-
-
-def construir_tabla_total_bits_crc(grado_r: int) -> pd.DataFrame:
-    cantidades_tramas = [1, 10, 100, 1000]
-    filas = []
-
-    for tramas in cantidades_tramas:
-        filas.append(
-            {
-                "Cantidad de tramas": tramas,
-                "Bits CRC por trama": grado_r,
-                "Bits CRC totales agregados": tramas * grado_r,
-                "Interpretación": "r no cambia; aumenta el total de bits CRC al haber más tramas",
-            }
-        )
-
-    return pd.DataFrame(filas)
-
 
 def construir_tabla_conceptos_crc() -> pd.DataFrame:
     return pd.DataFrame(
@@ -293,12 +201,120 @@ def construir_tabla_metricas_crc() -> pd.DataFrame:
                 "Probabilidad condicional de no detección dado que hubo error.",
                 "Relación señal-ruido expresada en decibeles.",
             ],
+            "Unidad o naturaleza": [
+                "Adimensional",
+                "Adimensional",
+                "Adimensional",
+                "Adimensional",
+                "Adimensional",
+                "dB",
+            ],
+        }
+    )
+
+
+def construir_tabla_division_polinomial_crc(
+    datos: str,
+    generador: str,
+    residuo: str,
+    trama: str,
+) -> pd.DataFrame:
+    r = len(generador) - 1
+    datos_desplazados = datos + ("0" * r)
+
+    return pd.DataFrame(
+        {
+            "Elemento": [
+                "Mensaje M(x)",
+                "Generador G(x)",
+                "Grado r",
+                "Mensaje desplazado M(x)x^r",
+                "Residuo R(x)",
+                "Trama T(x)",
+            ],
+            "Representación binaria": [
+                datos,
+                generador,
+                str(r),
+                datos_desplazados,
+                residuo,
+                trama,
+            ],
+            "Representación polinomial": [
+                binario_a_polinomio(datos),
+                binario_a_polinomio(generador),
+                f"r = {r}",
+                binario_a_polinomio(datos_desplazados),
+                binario_a_polinomio(residuo),
+                binario_a_polinomio(trama),
+            ],
+            "Interpretación": [
+                "Información original que se desea proteger.",
+                "Polinomio compartido por transmisor y receptor.",
+                "Cantidad de bits CRC que se agregan a cada trama.",
+                "Equivale a agregar r ceros al final del mensaje antes de dividir.",
+                "Resultado de dividir M(x)x^r entre G(x) usando aritmética módulo 2.",
+                "Secuencia final transmitida, formada por datos y residuo CRC.",
+            ],
+        }
+    )
+
+
+def construir_tabla_eleccion_generador_crc() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "Criterio para elegir G(x)": [
+                "Debe iniciar en 1",
+                "Debe terminar en 1",
+                "Debe tener grado r definido",
+                "Mayor grado agrega más redundancia",
+                "Debe ser conocido por transmisor y receptor",
+                "Debe seleccionarse según el tipo de error esperado",
+                "Puede mejorar la detección de errores en ráfaga",
+            ],
+            "Razón técnica": [
+                "Garantiza que el término de mayor grado exista.",
+                "Evita que el generador sea divisible por x y asegura un término independiente.",
+                "El grado r determina cuántos bits CRC se añaden.",
+                "Más bits CRC aumentan la capacidad de detección, pero también el costo de transmisión.",
+                "Ambos extremos deben usar el mismo polinomio para que la verificación sea válida.",
+                "No todos los polinomios detectan igual todos los patrones de error.",
+                "Los CRC se diseñan para detectar eficientemente errores agrupados en tramas.",
+            ],
+            "Ejemplo": [
+                "1011 representa x³ + x + 1",
+                "1001 termina en 1",
+                "1011 tiene grado r = 3",
+                "Un generador de 4 bits agrega 3 bits CRC",
+                "Si Tx usa 1011, Rx también debe verificar con 1011",
+                "Un sistema con ráfagas requiere un G(x) más robusto",
+                "CRC es muy usado en redes y almacenamiento por esta propiedad",
+            ],
+        }
+    )
+
+
+def construir_tabla_generadores_crc_comunes() -> pd.DataFrame:
+    generadores = ["1011", "10011", "11001", "100001"]
+
+    return pd.DataFrame(
+        {
+            "Generador binario": generadores,
+            "G(x)": [binario_a_polinomio(g) for g in generadores],
+            "Grado r": [len(g) - 1 for g in generadores],
+            "Bits CRC agregados": [len(g) - 1 for g in generadores],
+            "Uso didáctico": [
+                "Adecuado para ejemplos cortos y división manual.",
+                "Permite observar mayor redundancia que 1011.",
+                "Ejemplo alternativo de generador de grado 4.",
+                "Permite visualizar cómo aumenta el residuo CRC.",
+            ],
         }
     )
 
 
 # ============================================================
-# Lógica CRC y módulo 2
+# Lógica CRC y división módulo 2
 # ============================================================
 
 def crc_division_modulo_2(
@@ -339,6 +355,7 @@ def crc_division_modulo_2(
             )
 
     residuo = "".join(trabajo[-(longitud_divisor - 1):])
+
     return residuo, pd.DataFrame(pasos)
 
 
@@ -353,6 +370,7 @@ def crc_generar(datos: str, generador: str) -> Tuple[str, str, pd.DataFrame]:
     )
 
     trama = datos + residuo
+
     return residuo, trama, pasos
 
 
@@ -364,6 +382,7 @@ def crc_verificar(trama: str, generador: str) -> Tuple[bool, str, pd.DataFrame]:
     )
 
     valido = all(bit == "0" for bit in residuo)
+
     return valido, residuo, pasos
 
 
@@ -466,7 +485,7 @@ def evaluar_tramas_crc(
                     "Trama Tx": tx,
                     "Trama Rx": rx,
                     "Payload Rx": rx[:tamano_payload],
-                    "Errores en trama": errores_trama,
+                    "Errores en trama [bits]": errores_trama,
                     "Residuo verificación": residuo_rx,
                     "CRC válido": "Sí" if valido else "No",
                     "Estado": estado,
@@ -589,14 +608,6 @@ def generar_valores_sigma_desde_texto(texto: str) -> List[float]:
 
 
 def probabilidad_error_bpsk_awgn(sigma: float) -> float:
-    """
-    Probabilidad teórica aproximada de error de bit para BPSK normalizada
-    con símbolos -1 y +1, ruido AWGN de desviación estándar sigma y decisión
-    por umbral en cero.
-
-        Pb = Q(1/sigma)
-        Q(x) = 0.5 * erfc(x / sqrt(2))
-    """
     if sigma <= 0:
         return 0.0
 
@@ -611,14 +622,6 @@ def simular_barrido_crc(
     semilla_datos: int,
     semilla_canal_base: int,
 ) -> pd.DataFrame:
-    """
-    Comparación estadística rápida para la Guía 5.
-
-    Esta sección no verifica cada trama con división CRC exacta, porque hacerlo para miles
-    de tramas y muchos valores de sigma vuelve lenta la app. La simulación interactiva sí
-    mantiene el proceso exacto. Esta comparación usa aproximaciones estadísticas para que
-    cargue en segundos.
-    """
     r = len(generador) - 1
     longitud_trama = tamano_payload + r
 
@@ -740,7 +743,7 @@ def simular_barrido_crc(
 
 
 # ============================================================
-# Gráficas estadísticas logarítmicas
+# Gráficas
 # ============================================================
 
 def preparar_metrica_logaritmica(
@@ -883,7 +886,7 @@ def graficar_metrica_logaritmica_con_limite(
 
     st.caption(
         "Cada punto representa una evaluación estadística para un valor específico del parámetro. "
-        "El eje vertical se mantiene en escala logarítmica para visualizar métricas pequeñas como BER o FER."
+        "El eje vertical se mantiene en escala logarítmica para visualizar métricas pequeñas como BER, FER o tasa de error."
     )
 
     if not df_sin_eventos.empty:
@@ -906,9 +909,9 @@ def graficar_fer_vs_sigma(df: pd.DataFrame) -> None:
         columna_metrica="FER",
         columna_n="Tramas evaluadas",
         titulo="FER vs σ",
-        etiqueta_x="Desviación estándar del ruido σ",
-        etiqueta_y="FER en escala logarítmica",
-        etiqueta_metrica="FER observado",
+        etiqueta_x="Desviación estándar del ruido σ [amplitud normalizada]",
+        etiqueta_y="FER [adimensional, escala logarítmica]",
+        etiqueta_metrica="FER observada",
         ordenar_ascendente=True,
     )
 
@@ -920,9 +923,9 @@ def graficar_tasa_no_detectada_vs_sigma(df: pd.DataFrame) -> None:
         columna_metrica="Tasa de error no detectado",
         columna_n="Tramas evaluadas",
         titulo="Tasa de error no detectado vs σ",
-        etiqueta_x="Desviación estándar del ruido σ",
-        etiqueta_y="Tasa en escala logarítmica",
-        etiqueta_metrica="Tasa observada",
+        etiqueta_x="Desviación estándar del ruido σ [amplitud normalizada]",
+        etiqueta_y="Tasa de error no detectado [adimensional, escala logarítmica]",
+        etiqueta_metrica="Tasa de error no detectado observada",
         ordenar_ascendente=True,
     )
 
@@ -934,8 +937,8 @@ def graficar_ber_canal_vs_sigma(df: pd.DataFrame) -> None:
         columna_metrica="BER del canal",
         columna_n="Bits evaluados",
         titulo="BER del canal vs σ",
-        etiqueta_x="Desviación estándar del ruido σ",
-        etiqueta_y="BER en escala logarítmica",
+        etiqueta_x="Desviación estándar del ruido σ [amplitud normalizada]",
+        etiqueta_y="BER del canal [adimensional, escala logarítmica]",
         etiqueta_metrica="BER del canal observada",
         ordenar_ascendente=True,
     )
@@ -947,9 +950,9 @@ def graficar_ber_canal_vs_snr(df: pd.DataFrame) -> None:
         columna_x="SNR dB",
         columna_metrica="BER del canal",
         columna_n="Bits evaluados",
-        titulo="BER del canal vs SNR dB",
-        etiqueta_x="SNR dB",
-        etiqueta_y="BER en escala logarítmica",
+        titulo="BER del canal vs SNR",
+        etiqueta_x="SNR [dB]",
+        etiqueta_y="BER del canal [adimensional, escala logarítmica]",
         etiqueta_metrica="BER del canal observada",
         ordenar_ascendente=True,
     )
@@ -970,8 +973,8 @@ def graficar_muestras_awgn(detalle: Dict[str, object], max_muestras: int = 40) -
     ax.scatter(x, recibido, marker="x", label="Valor recibido")
     ax.axhline(0, linestyle="--", linewidth=1, label="Umbral")
     ax.set_title("Muestras discretas transmitidas y recibidas")
-    ax.set_xlabel("Índice de muestra")
-    ax.set_ylabel("Amplitud")
+    ax.set_xlabel("Índice de muestra [n]")
+    ax.set_ylabel("Amplitud normalizada")
     ax.grid(True)
     ax.legend()
     st.pyplot(fig)
@@ -981,12 +984,26 @@ def graficar_muestras_awgn(detalle: Dict[str, object], max_muestras: int = 40) -
     ax_ruido.scatter(x, ruido, marker="o", label="Ruido por muestra")
     ax_ruido.axhline(0, linestyle="--", linewidth=1)
     ax_ruido.set_title("Ruido AWGN por muestra")
-    ax_ruido.set_xlabel("Índice de muestra")
-    ax_ruido.set_ylabel("Ruido")
+    ax_ruido.set_xlabel("Índice de muestra [n]")
+    ax_ruido.set_ylabel("Ruido n[n] [amplitud normalizada]")
     ax_ruido.grid(True)
     ax_ruido.legend()
     st.pyplot(fig_ruido)
     plt.close(fig_ruido)
+
+    tabla = pd.DataFrame(
+        {
+            "Muestra [n]": x,
+            "Bit Tx": list(flujo_tx),
+            "Bit Rx": list(flujo_rx),
+            "Estado": [
+                "Correcto" if a == b else "Error"
+                for a, b in zip(flujo_tx, flujo_rx)
+            ],
+        }
+    )
+
+    mostrar_dataframe(tabla)
 
 
 # ============================================================
@@ -998,7 +1015,7 @@ def mostrar_explicacion_metricas_crc() -> None:
         """
 ### Interpretación de métricas estadísticas
 
-En esta sección se evalúa el comportamiento del CRC bajo diferentes niveles de ruido. La simulación interactiva permite observar el proceso exacto de codificación, transmisión y verificación de tramas. La comparación estadística, en cambio, utiliza una aproximación rápida para analizar tendencias con muchas tramas sin hacer que la aplicación tarde demasiado en responder.
+En esta sección se evalúa el comportamiento del CRC bajo diferentes niveles de ruido. La simulación interactiva permite observar el proceso exacto de codificación, transmisión y verificación de tramas. La comparación estadística utiliza un modelo estadístico aproximado para analizar tendencias con muchas tramas sin hacer que la aplicación tarde demasiado en responder.
 
 Las métricas se interpretan de la siguiente manera:
 
@@ -1007,6 +1024,8 @@ Las métricas se interpretan de la siguiente manera:
 - **Tasa de detección condicional:** indica qué proporción de las tramas realmente alteradas fueron detectadas por CRC.
 - **Tasa de error no detectado:** mide la proporción global de tramas alteradas que no fueron identificadas por la verificación CRC.
 - **Tasa no detectada condicional:** mide la proporción de errores no detectados considerando únicamente las tramas que sí fueron alteradas.
+
+BER, FER y las tasas son magnitudes **adimensionales**, porque representan razones entre cantidades de bits, tramas o eventos.
 
 Cuando una métrica toma el valor cero en una simulación, esto significa que no se observó ese evento en la cantidad de pruebas realizadas. No debe interpretarse como una probabilidad real absolutamente nula. Por esta razón, en las gráficas logarítmicas se utiliza el criterio:
 
@@ -1030,7 +1049,7 @@ def render_guia_05() -> None:
         """
 El Código de Redundancia Cíclica, conocido como CRC, es una técnica de detección de errores ampliamente utilizada en sistemas de comunicación digital y redes de datos. Su propósito es agregar redundancia calculada matemáticamente a una secuencia de bits para que el receptor pueda verificar si la trama recibida presenta alteraciones.
 
-En esta guía se estudia el CRC desde tres perspectivas: el cálculo manual del residuo, la verificación de tramas recibidas y el análisis estadístico de su comportamiento bajo un canal con ruido AWGN.
+En esta guía se estudia el CRC desde tres perspectivas: el cálculo manual del residuo mediante división polinomial, la verificación de tramas recibidas y el análisis estadístico de su comportamiento bajo un canal con ruido AWGN.
 """
     )
 
@@ -1058,14 +1077,16 @@ Comprender el funcionamiento del Código de Redundancia Cíclica como técnica d
 **Objetivos específicos**
 
 1. Representar secuencias binarias como polinomios sobre GF(2).
-2. Calcular el residuo CRC mediante división módulo 2.
-3. Construir la trama transmitida a partir de datos y residuo.
-4. Verificar tramas recibidas usando el mismo generador.
-5. Analizar la diferencia entre detectar y corregir errores.
-6. Simular tramas CRC sobre un canal AWGN.
-7. Calcular BER del canal, FER y tasa de error no detectado.
-8. Interpretar métricas estadísticas usando escala logarítmica.
-9. Comprender el significado de cero eventos observados en simulación.
+2. Comprender la función del polinomio generador $G(x)$.
+3. Explicar cómo se elige un generador CRC válido.
+4. Calcular el residuo CRC mediante división polinomial módulo 2.
+5. Construir la trama transmitida a partir de datos y residuo.
+6. Verificar tramas recibidas usando el mismo generador.
+7. Analizar la diferencia entre detectar y corregir errores.
+8. Simular tramas CRC sobre un canal AWGN.
+9. Calcular BER del canal, FER y tasa de error no detectado.
+10. Interpretar métricas estadísticas usando escala logarítmica.
+11. Identificar correctamente las unidades o naturaleza de las magnitudes graficadas.
 """
         )
 
@@ -1090,55 +1111,98 @@ $$
 
 El bit más significativo corresponde al término de mayor grado. Esta representación permite usar división polinómica sobre el campo binario GF(2).
 
-### 3. Generador CRC
+### 3. Teoría del polinomio generador G(x)
 
-El transmisor y el receptor comparten un mismo polinomio generador $G(x)$. En forma binaria, este generador debe iniciar y terminar en 1. Si el generador tiene longitud $L$, entonces su grado es:
+El polinomio generador $G(x)$ es el elemento central del CRC. Este polinomio define la regla matemática con la que el transmisor calcula el residuo y con la que el receptor verifica la trama recibida.
+
+En forma binaria, cada bit del generador representa un coeficiente del polinomio. Por ejemplo:
+
+$$
+G(x) = 1011
+$$
+
+equivale a:
+
+$$
+G(x) = x^3 + x + 1
+$$
+
+El bit más significativo representa el término de mayor grado y el bit menos significativo representa el término independiente.
+
+Para que un generador CRC sea válido en esta guía, debe cumplir tres condiciones básicas:
+
+- Debe estar formado únicamente por bits 0 y 1.
+- Debe iniciar en 1.
+- Debe terminar en 1.
+
+Si el generador tiene longitud $L$, entonces su grado es:
 
 $$
 r = L - 1
 $$
 
-Ese valor $r$ indica cuántos bits CRC se agregan al mensaje.
+Ese grado $r$ determina cuántos bits CRC se agregan al mensaje original.
 """
         )
 
-        st.subheader("¿Cómo cambia r?")
-        mostrar_dataframe(construir_tabla_grado_generador())
+        st.subheader("Criterios para elegir G(x)")
+        mostrar_dataframe(construir_tabla_eleccion_generador_crc())
+
+        st.subheader("Ejemplos de generadores CRC")
+        mostrar_dataframe(construir_tabla_generadores_crc_comunes())
+
+        st.subheader("Desarrollo de la división polinomial")
 
         st.markdown(
             """
-### 4. División módulo 2 y operación XOR
+El proceso de generación CRC se basa en una división polinomial sobre el campo binario $GF(2)$. En este campo solo existen los valores 0 y 1, y las operaciones se realizan módulo 2.
 
-Para resolver la división del CRC se opera sobre el campo binario $GF(2)$. En este campo solo existen los valores 0 y 1, y las operaciones se realizan sin acarreo. Por ello, la suma y la resta módulo 2 se comportan igual y pueden implementarse con la operación lógica XOR.
+Por esa razón, la resta polinomial se implementa mediante XOR:
 
-Los cuatro casos básicos son:
+$$
+0 \\oplus 0 = 0
+$$
 
-- $0 \\oplus 0 = 0$
-- $0 \\oplus 1 = 1$
-- $1 \\oplus 0 = 1$
-- $1 \\oplus 1 = 0$
+$$
+0 \\oplus 1 = 1
+$$
 
-Por esta razón, la división usada para calcular el CRC no se realiza con resta decimal tradicional, sino con XOR bit a bit.
+$$
+1 \\oplus 0 = 1
+$$
 
-### 5. Cálculo del residuo
+$$
+1 \\oplus 1 = 0
+$$
 
-Sea $M(x)$ el mensaje original. Primero se multiplica por $x^r$, lo que equivale a agregar $r$ ceros al final de la secuencia binaria. Luego se divide entre el generador usando la resta módulo 2:
+Para calcular el CRC se siguen estos pasos:
+
+1. Se toma el mensaje original $M(x)$.
+2. Se identifica el grado $r$ del generador $G(x)$.
+3. Se multiplica el mensaje por $x^r$, lo que en binario equivale a agregar $r$ ceros al final.
+4. Se divide $M(x)x^r$ entre $G(x)$ usando división módulo 2.
+5. El residuo de esa división es $R(x)$.
+6. La trama transmitida se forma concatenando el mensaje original con el residuo.
+
+Matemáticamente:
 
 $$
 R(x) = M(x)x^r \\bmod G(x)
 $$
 
-La trama transmitida se forma como:
+y la trama transmitida es:
 
 $$
 T(x) = M(x)x^r + R(x)
 $$
 
-En forma binaria, esto puede interpretarse como $t = m || R$, donde $||$ representa concatenación.
+En forma binaria:
 
-### 6. Verificación en el receptor
+$$
+t = m || R
+$$
 
-El receptor divide la trama recibida entre el mismo generador $G(x)$. Si el residuo es cero, el receptor concluye que no se detecta error. Si el residuo es distinto de cero, el receptor detecta que la trama fue alterada.
+donde $||$ representa concatenación.
 """
         )
 
@@ -1203,47 +1267,44 @@ Generador: 1011
                 residuo, trama, pasos = crc_generar(datos_paso, generador_paso)
                 valido, residuo_verificacion, _ = crc_verificar(trama, generador_paso)
 
-                tabla_elementos = construir_tabla_elementos_crc(
-                    datos_paso,
-                    generador_paso,
-                    residuo,
-                    trama,
-                )
+                st.subheader("Representación polinómica")
+                st.markdown(f"**M(x):** {binario_a_polinomio(datos_paso)}")
+                st.markdown(f"**G(x):** {binario_a_polinomio(generador_paso)}")
+                st.markdown(f"**Grado del generador:** r = {r}")
+                st.markdown(f"**Bits CRC agregados:** {r} bits")
 
-                st.subheader("1. Elementos de la ecuación CRC")
+                st.subheader("Desarrollo polinomial del CRC")
+
                 st.markdown(
-                    "La ecuación formal es: $T(x) = M(x)x^r + R(x)$. "
-                    "La siguiente tabla explica qué significa cada elemento y cómo se obtiene."
+                    """
+La siguiente tabla muestra cómo se interpreta cada elemento del proceso CRC desde la forma binaria hasta la forma polinomial.
+"""
                 )
-                mostrar_dataframe(tabla_elementos)
 
-                st.subheader("2. Resultado del cálculo")
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Longitud del generador", len(generador_paso))
-                c2.metric("Grado r", r)
-                c3.metric("Bits CRC", r)
-                c4.metric("Residuo", residuo)
+                mostrar_dataframe(
+                    construir_tabla_division_polinomial_crc(
+                        datos=datos_paso,
+                        generador=generador_paso,
+                        residuo=residuo,
+                        trama=trama,
+                    )
+                )
+
+                st.subheader("Resultado del cálculo")
 
                 st.code(
-                    f"Datos:            {datos_paso}\n"
-                    f"Ceros agregados:  {'0' * r}\n"
-                    f"Residuo CRC:      {residuo}\n"
-                    f"Trama final:      {trama}",
+                    f"Datos:           {datos_paso}\n"
+                    f"Ceros agregados: {'0' * r}\n"
+                    f"Residuo CRC:     {residuo}\n"
+                    f"Trama final:     {trama}",
                     language="text",
                 )
 
-                st.subheader("3. Pasos de la división módulo 2")
+                st.subheader("Pasos de división módulo 2")
                 mostrar_dataframe(pasos)
 
-                st.subheader("4. Efecto del número de tramas sobre los bits CRC")
-                st.markdown(
-                    "El valor $r$ no cambia por transmitir más tramas. "
-                    "$r$ depende únicamente del generador. Sin embargo, si se transmiten más tramas, "
-                    "se agregan más bits CRC en total."
-                )
-                mostrar_dataframe(construir_tabla_total_bits_crc(r))
+                st.subheader("Verificación de la trama transmitida")
 
-                st.subheader("5. Verificación de la trama transmitida en el receptor")
                 st.code(
                     f"Trama verificada: {trama}\n"
                     f"Residuo:          {residuo_verificacion}\n"
@@ -1279,7 +1340,7 @@ En esta sección se divide una secuencia de datos en tramas, se calcula el CRC d
                 )
             else:
                 cantidad_bits = st.selectbox(
-                    "Cantidad de bits",
+                    "Cantidad de bits [bits]",
                     [32, 64, 128, 1000, 5000, 10000, 50000],
                     index=3,
                     key="g5_cantidad_bits",
@@ -1302,7 +1363,7 @@ En esta sección se divide una secuencia de datos en tramas, se calcula el CRC d
                 st.code(truncar_bits(datos), language="text")
 
             tamano_payload = st.selectbox(
-                "Tamaño del payload por trama",
+                "Tamaño del payload por trama [bits]",
                 [4, 8, 16, 32, 64],
                 index=2,
                 key="g5_tamano_payload",
@@ -1317,7 +1378,7 @@ En esta sección se divide una secuencia de datos en tramas, se calcula el CRC d
             )
 
             sigma = st.slider(
-                "Desviación estándar del ruido σ",
+                "Desviación estándar del ruido σ [amplitud normalizada]",
                 min_value=0.0,
                 max_value=1.5,
                 value=0.35,
@@ -1350,7 +1411,11 @@ En esta sección se divide una secuencia de datos en tramas, se calcula el CRC d
                 "Use pocos bits para observar el proceso por tramas. "
                 "Use muchos bits para obtener métricas estadísticas más representativas."
             )
-            st.metric("Varianza del ruido σ²", f"{sigma**2:.6f}")
+
+            st.metric(
+                "Varianza del ruido σ² [amplitud normalizada²]",
+                f"{sigma**2:.6f}",
+            )
 
         if not validar_bits(datos):
             st.error("Los datos deben contener únicamente 0 y 1.")
@@ -1367,12 +1432,13 @@ En esta sección se divide una secuencia de datos en tramas, se calcula el CRC d
             )
 
             st.subheader("Métricas principales")
+
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("BER del canal", f"{resumen['BER del canal']:.6f}")
-            c2.metric("FER", f"{resumen['FER']:.6f}")
+            c1.metric("BER del canal [adimensional]", f"{resumen['BER del canal']:.6f}")
+            c2.metric("FER [adimensional]", f"{resumen['FER']:.6f}")
             c3.metric("Errores no detectados", f"{int(resumen['Errores no detectados'])}")
             c4.metric(
-                "SNR dB",
+                "SNR [dB]",
                 "∞" if math.isinf(float(resumen["SNR dB"])) else f"{resumen['SNR dB']:.3f}",
             )
 
@@ -1380,7 +1446,10 @@ En esta sección se divide una secuencia de datos en tramas, se calcula el CRC d
             c5.metric("Tramas evaluadas", f"{int(resumen['Tramas evaluadas'])}")
             c6.metric("Tramas con error", f"{int(resumen['Tramas con error'])}")
             c7.metric("Detectadas por CRC", f"{int(resumen['Tramas detectadas por CRC'])}")
-            c8.metric("Tasa no detectada", f"{resumen['Tasa de error no detectado']:.6f}")
+            c8.metric(
+                "Tasa no detectada [adimensional]",
+                f"{resumen['Tasa de error no detectado']:.6f}",
+            )
 
             st.subheader("Resumen numérico")
             mostrar_dataframe(pd.DataFrame([resumen]))
@@ -1409,28 +1478,28 @@ En esta sección se divide una secuencia de datos en tramas, se calcula el CRC d
                 "Cantidad de tramas para comparación",
                 [100, 500, 1000, 5000, 10000],
                 index=3,
-                key="g5_cantidad_tramas_comparacion_v6",
+                key="g5_cantidad_tramas_comparacion_v8",
             )
 
             tamano_payload_comp = st.selectbox(
-                "Tamaño de payload",
+                "Tamaño de payload [bits]",
                 [8, 16, 32, 64],
                 index=1,
-                key="g5_payload_comparacion_v6",
+                key="g5_payload_comparacion_v8",
             )
 
             generador_comp = limpiar_bits(
                 st.text_input(
                     "Generador CRC",
                     value="1011",
-                    key="g5_generador_comparacion_v6",
+                    key="g5_generador_comparacion_v8",
                 )
             )
 
             sigmas_texto = st.text_input(
-                "Valores de σ separados por coma",
+                "Valores de σ separados por coma [amplitud normalizada]",
                 value="0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00",
-                key="g5_sigmas_comparacion_v6",
+                key="g5_sigmas_comparacion_v8",
             )
 
             semilla_datos_comp = st.number_input(
@@ -1439,7 +1508,7 @@ En esta sección se divide una secuencia de datos en tramas, se calcula el CRC d
                 max_value=999999,
                 value=900,
                 step=1,
-                key="g5_semilla_datos_comparacion_v6",
+                key="g5_semilla_datos_comparacion_v8",
             )
 
             semilla_canal_comp = st.number_input(
@@ -1448,18 +1517,18 @@ En esta sección se divide una secuencia de datos en tramas, se calcula el CRC d
                 max_value=999999,
                 value=1200,
                 step=1,
-                key="g5_semilla_canal_comparacion_v6",
+                key="g5_semilla_canal_comparacion_v8",
             )
 
             ejecutar_comp = st.button(
                 "Ejecutar comparación estadística",
-                key="g5_ejecutar_comparacion_v6",
+                key="g5_ejecutar_comparacion_v8",
             )
 
         with col_info:
             st.info(
-                "Esta comparación usa una aproximación estadística rápida para evaluar muchas tramas "
-                "sin que la app tarde varios minutos. Las gráficas se muestran en escala logarítmica."
+                "Esta comparación evalúa muchas tramas. "
+                "Las gráficas usan escala logarítmica y puntos discretos, sin líneas continuas."
             )
 
         if not validar_generador_crc(generador_comp):
@@ -1479,7 +1548,7 @@ En esta sección se divide una secuencia de datos en tramas, se calcula el CRC d
                 st.error("Los valores de σ no pueden ser negativos.")
                 return
 
-            with st.spinner("Ejecutando comparación estadística rápida..."):
+            with st.spinner("Ejecutando comparación estadística..."):
                 df_comp = simular_barrido_crc(
                     cantidad_tramas=int(cantidad_tramas),
                     tamano_payload=int(tamano_payload_comp),
@@ -1488,8 +1557,6 @@ En esta sección se divide una secuencia de datos en tramas, se calcula el CRC d
                     semilla_datos=int(semilla_datos_comp),
                     semilla_canal_base=int(semilla_canal_comp),
                 )
-
-            st.success("Comparación finalizada.")
 
             st.subheader("Tabla de comparación")
 
@@ -1521,22 +1588,23 @@ En esta sección se divide una secuencia de datos en tramas, se calcula el CRC d
             st.subheader("BER del canal vs σ")
             graficar_ber_canal_vs_sigma(df_comp)
 
-            st.subheader("BER del canal vs SNR dB")
+            st.subheader("BER del canal vs SNR")
             graficar_ber_canal_vs_snr(df_comp)
 
-            st.session_state["g5_df_comparacion_v6"] = df_comp
+            st.session_state["g5_df_comparacion_v8"] = df_comp
 
     with tabs[5]:
         st.header("Análisis y dinámica")
 
         st.markdown(
             """
-Esta sección conecta los resultados de simulación con la interpretación teórica del CRC. El objetivo es que el estudiante distinga entre el error producido por el canal y la capacidad del CRC para detectar tramas alteradas.
+Esta sección conecta los resultados de simulación con la interpretación teórica del CRC. El objetivo es que el estudiante distinga entre el error producido por el canal, la capacidad de detección del CRC y el costo de redundancia agregado por el polinomio generador.
 """
         )
 
         if "g5_resultado_resumen" in st.session_state:
             st.subheader("Última simulación interactiva")
+
             resumen = st.session_state["g5_resultado_resumen"]
             mostrar_dataframe(pd.DataFrame([resumen]))
 
@@ -1544,7 +1612,7 @@ Esta sección conecta los resultados de simulación con la interpretación teór
                 f"""
 En la última simulación se evaluaron **{int(resumen['Tramas evaluadas'])} tramas**. De ellas, **{int(resumen['Tramas con error'])}** presentaron al menos un error de bit.
 
-El canal produjo una BER de **{resumen['BER del canal']:.6f}** y una FER de **{resumen['FER']:.6f}**. El CRC detectó **{int(resumen['Tramas detectadas por CRC'])}** tramas como alteradas.
+El canal produjo una BER de **{resumen['BER del canal']:.6f}** [adimensional] y una FER de **{resumen['FER']:.6f}** [adimensional]. El CRC detectó **{int(resumen['Tramas detectadas por CRC'])}** tramas como alteradas.
 
 Los errores no detectados fueron **{int(resumen['Errores no detectados'])}**. Si este valor es cero, debe interpretarse como ausencia de eventos observados en la simulación, no como una garantía absoluta de que el CRC nunca falle.
 """
@@ -1552,9 +1620,10 @@ Los errores no detectados fueron **{int(resumen['Errores no detectados'])}**. Si
         else:
             st.info("Ejecute primero una simulación interactiva.")
 
-        if "g5_df_comparacion_v6" in st.session_state:
+        if "g5_df_comparacion_v8" in st.session_state:
             st.subheader("Última comparación estadística")
-            df_comp = st.session_state["g5_df_comparacion_v6"]
+
+            df_comp = st.session_state["g5_df_comparacion_v8"]
             mostrar_dataframe(df_comp)
 
             df_ordenado = df_comp.sort_values("σ")
@@ -1563,9 +1632,9 @@ Los errores no detectados fueron **{int(resumen['Errores no detectados'])}**. Si
 
             st.markdown(
                 f"""
-Con el menor valor de ruido evaluado, $\\sigma = {menor_sigma['σ']:.2f}$, la FER fue **{menor_sigma['FER']:.6f}** y la tasa de error no detectado fue **{menor_sigma['Tasa de error no detectado']:.6f}**.
+Con el menor valor de ruido evaluado, $\\sigma = {menor_sigma['σ']:.2f}$ [amplitud normalizada], la FER fue **{menor_sigma['FER']:.6f}** [adimensional] y la tasa de error no detectado fue **{menor_sigma['Tasa de error no detectado']:.6f}** [adimensional].
 
-Con el mayor valor de ruido evaluado, $\\sigma = {mayor_sigma['σ']:.2f}$, la FER fue **{mayor_sigma['FER']:.6f}** y la tasa de error no detectado fue **{mayor_sigma['Tasa de error no detectado']:.6f}**.
+Con el mayor valor de ruido evaluado, $\\sigma = {mayor_sigma['σ']:.2f}$ [amplitud normalizada], la FER fue **{mayor_sigma['FER']:.6f}** [adimensional] y la tasa de error no detectado fue **{mayor_sigma['Tasa de error no detectado']:.6f}** [adimensional].
 
 La tendencia esperada es que al aumentar $\\sigma$ aumente la dispersión del ruido, lo cual incrementa los errores del canal.
 """
@@ -1574,17 +1643,22 @@ La tendencia esperada es que al aumentar $\\sigma$ aumente la dispersión del ru
             st.info("Ejecute primero una comparación estadística.")
 
         st.subheader("Actividades guiadas")
+
         st.markdown(
             """
 1. Calcule manualmente el CRC de una trama corta.
-2. Verifique en la app que la trama transmitida produzca residuo cero.
-3. Ejecute la simulación con pocos bits y observe las tablas de tramas.
-4. Ejecute la comparación estadística con 5000 o más tramas.
-5. Observe cómo cambia la FER al aumentar σ.
-6. Observe cómo cambia la BER del canal al aumentar o disminuir la SNR.
-7. Identifique si aparecen errores no detectados.
-8. Explique por qué cero errores no detectados no significa probabilidad real igual a cero.
-9. Explique por qué CRC detecta errores, pero no los corrige.
+2. Identifique el polinomio $M(x)$ asociado al mensaje.
+3. Identifique el polinomio generador $G(x)$.
+4. Determine el grado $r$ del generador.
+5. Agregue $r$ ceros al mensaje para formar $M(x)x^r$.
+6. Realice la división módulo 2 usando XOR.
+7. Verifique que el residuo obtenido coincida con la app.
+8. Ejecute la simulación con pocos bits y observe las tablas de tramas.
+9. Ejecute la comparación estadística con 5000 o más tramas.
+10. Observe cómo cambia la FER al aumentar σ.
+11. Observe cómo cambia la BER del canal al aumentar o disminuir la SNR.
+12. Explique por qué cero errores no detectados no significa probabilidad real igual a cero.
+13. Explique por qué CRC detecta errores, pero no los corrige.
 """
         )
 
@@ -1662,6 +1736,24 @@ La tendencia esperada es que al aumentar $\\sigma$ aumente la dispersión del ru
             else:
                 st.error("Revise la interpretación de métricas en escala logarítmica.")
 
+        pregunta_5 = st.radio(
+            "Pregunta 5: ¿Qué determina el grado r del generador G(x)?",
+            [
+                "La cantidad de bits CRC agregados.",
+                "La cantidad de errores corregidos automáticamente.",
+                "La amplitud del ruido.",
+                "La SNR del canal.",
+            ],
+            index=None,
+            key="g5_pregunta_5",
+        )
+
+        if pregunta_5:
+            if pregunta_5 == "La cantidad de bits CRC agregados.":
+                st.success("Correcto. Si G(x) tiene longitud L, entonces r = L - 1.")
+            else:
+                st.error("Revise la teoría del polinomio generador.")
+
     with tabs[6]:
         st.header("Conclusiones")
 
@@ -1671,7 +1763,10 @@ Al finalizar esta guía, el estudiante debe concluir que:
 
 - CRC es una técnica de detección de errores basada en redundancia.
 - Las secuencias binarias pueden representarse como polinomios sobre GF(2).
-- El residuo CRC se obtiene mediante división módulo 2.
+- El polinomio generador $G(x)$ define la regla de cálculo y verificación del CRC.
+- El generador debe iniciar en 1, terminar en 1 y ser conocido por transmisor y receptor.
+- El grado $r$ del generador determina cuántos bits CRC se agregan.
+- El residuo CRC se obtiene mediante división polinomial módulo 2.
 - La operación fundamental de la división CRC es XOR.
 - El transmisor envía los datos concatenados con el residuo.
 - El receptor divide la trama recibida entre el mismo generador.
@@ -1681,7 +1776,9 @@ Al finalizar esta guía, el estudiante debe concluir que:
 - La capacidad de detección depende del generador y del patrón de error.
 - BER mide errores de bit producidos por el canal.
 - FER mide tramas alteradas.
-- La tasa de error no detectado mide eventos que CRC no logró marcar.
+- BER, FER y las tasas son magnitudes adimensionales.
+- La SNR se expresa en dB.
+- La desviación estándar del ruido σ se interpreta en amplitud normalizada.
 - En gráficas logarítmicas, cero eventos observados debe interpretarse como un límite experimental.
 - Evaluar muchas tramas permite obtener conclusiones estadísticas más confiables.
 
