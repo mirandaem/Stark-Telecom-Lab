@@ -602,7 +602,208 @@ def generar_valores_sigma_desde_texto(texto: str) -> List[float]:
             valores.append(float(parte))
     return valores
 
+# ============================================================
+# Versión optimizada para comparación estadística CRC
+# ============================================================
 
+def cadena_bits_a_array(bits: str) -> np.ndarray:
+    """
+    Convierte una cadena binaria como '1011' en un arreglo NumPy [1, 0, 1, 1].
+    Esta conversión permite acelerar la comparación estadística.
+    """
+    if len(bits) == 0:
+        return np.array([], dtype=np.uint8)
+
+    return np.frombuffer(bits.encode("ascii"), dtype=np.uint8) - ord("0")
+
+
+def evaluar_tramas_crc_vectorizado(
+    bits_tx: np.ndarray,
+    bits_rx: np.ndarray,
+    longitud_trama: int,
+    generador: str,
+) -> Dict[str, float | int]:
+    """
+    Evalúa tramas CRC de forma vectorizada.
+
+    Esta función se usa en la comparación estadística para evitar verificar cada trama
+    con cadenas de texto una por una. Mantiene la misma lógica CRC, pero procesa las
+    tramas como arreglos NumPy.
+    """
+    n_bits = min(len(bits_tx), len(bits_rx))
+    n_tramas = n_bits // longitud_trama
+
+    if n_tramas <= 0:
+        return {
+            "Tramas evaluadas": 0,
+            "Tramas con error": 0,
+            "Tramas detectadas por CRC": 0,
+            "Tramas detectadas con error real": 0,
+            "Errores no detectados": 0,
+            "Falsas alarmas": 0,
+            "FER": 0.0,
+            "Tasa de detección condicional": 0.0,
+            "Tasa de error no detectado": 0.0,
+            "Tasa no detectada condicional": 0.0,
+        }
+
+    bits_tx_matriz = bits_tx[: n_tramas * longitud_trama].reshape(
+        n_tramas,
+        longitud_trama,
+    )
+
+    bits_rx_matriz = bits_rx[: n_tramas * longitud_trama].reshape(
+        n_tramas,
+        longitud_trama,
+    )
+
+    errores_por_trama = np.sum(bits_tx_matriz != bits_rx_matriz, axis=1)
+    tiene_error = errores_por_trama > 0
+
+    trabajo = bits_rx_matriz.copy()
+    divisor = cadena_bits_a_array(generador)
+    longitud_divisor = len(divisor)
+    r = longitud_divisor - 1
+
+    for i in range(longitud_trama - longitud_divisor + 1):
+        mascara = trabajo[:, i] == 1
+
+        if np.any(mascara):
+            trabajo[mascara, i : i + longitud_divisor] ^= divisor
+
+    residuo = trabajo[:, -r:]
+    crc_valido = np.all(residuo == 0, axis=1)
+    detectado_por_crc = ~crc_valido
+
+    tramas_evaluadas = int(n_tramas)
+    tramas_con_error = int(np.sum(tiene_error))
+    tramas_detectadas = int(np.sum(detectado_por_crc))
+    tramas_detectadas_con_error = int(np.sum(tiene_error & detectado_por_crc))
+    errores_no_detectados = int(np.sum(tiene_error & crc_valido))
+    falsas_alarmas = int(np.sum((~tiene_error) & detectado_por_crc))
+
+    fer = tramas_con_error / tramas_evaluadas if tramas_evaluadas else 0.0
+
+    tasa_no_detectada_global = (
+        errores_no_detectados / tramas_evaluadas if tramas_evaluadas else 0.0
+    )
+
+    tasa_no_detectada_condicional = (
+        errores_no_detectados / tramas_con_error if tramas_con_error else 0.0
+    )
+
+    tasa_deteccion_condicional = (
+        tramas_detectadas_con_error / tramas_con_error if tramas_con_error else 0.0
+    )
+
+    return {
+        "Tramas evaluadas": tramas_evaluadas,
+        "Tramas con error": tramas_con_error,
+        "Tramas detectadas por CRC": tramas_detectadas,
+        "Tramas detectadas con error real": tramas_detectadas_con_error,
+        "Errores no detectados": errores_no_detectados,
+        "Falsas alarmas": falsas_alarmas,
+        "FER": fer,
+        "Tasa de detección condicional": tasa_deteccion_condicional,
+        "Tasa de error no detectado": tasa_no_detectada_global,
+        "Tasa no detectada condicional": tasa_no_detectada_condicional,
+    }
+
+
+def simular_barrido_crc(
+    cantidad_tramas: int,
+    tamano_payload: int,
+    generador: str,
+    valores_sigma: List[float],
+    semilla_datos: int,
+    semilla_canal_base: int,
+) -> pd.DataFrame:
+    """
+    Ejecuta una comparación estadística optimizada para varios valores de σ.
+
+    A diferencia de la versión lenta, aquí la codificación CRC se calcula una sola vez.
+    Luego se reutiliza el flujo transmitido para todos los valores de ruido. Además,
+    la verificación CRC de la comparación se hace de forma vectorizada con NumPy.
+    """
+    cantidad_bits = cantidad_tramas * tamano_payload
+
+    datos = generar_bits_aleatorios(
+        cantidad=cantidad_bits,
+        semilla=semilla_datos,
+    )
+
+    flujo_tx, padding, longitud_trama, _ = codificar_tramas_crc(
+        datos=datos,
+        tamano_payload=tamano_payload,
+        generador=generador,
+        max_tabla=0,
+    )
+
+    bits_tx = cadena_bits_a_array(flujo_tx)
+    simbolos_tx = np.where(bits_tx == 1, 1.0, -1.0)
+
+    potencia_senal = float(np.mean(simbolos_tx**2)) if len(simbolos_tx) else 0.0
+
+    filas = []
+
+    for i, sigma in enumerate(valores_sigma):
+        rng = np.random.default_rng(semilla_canal_base + (1000 * (i + 1)))
+
+        ruido = rng.normal(
+            loc=0.0,
+            scale=sigma,
+            size=len(simbolos_tx),
+        )
+
+        recibido = simbolos_tx + ruido
+        bits_rx = np.where(recibido >= 0, 1, 0).astype(np.uint8)
+
+        bits_evaluados = int(min(len(bits_tx), len(bits_rx)))
+        errores_bit_canal = int(np.sum(bits_tx[:bits_evaluados] != bits_rx[:bits_evaluados]))
+
+        ber_canal = (
+            errores_bit_canal / bits_evaluados
+            if bits_evaluados > 0
+            else 0.0
+        )
+
+        potencia_ruido = float(np.mean(ruido**2)) if len(ruido) else 0.0
+
+        if potencia_ruido == 0:
+            snr = math.inf
+            snr_db = math.inf
+        else:
+            snr = potencia_senal / potencia_ruido
+            snr_db = 10 * math.log10(snr)
+
+        metricas_crc = evaluar_tramas_crc_vectorizado(
+            bits_tx=bits_tx,
+            bits_rx=bits_rx,
+            longitud_trama=longitud_trama,
+            generador=generador,
+        )
+
+        resumen = {
+            "σ": sigma,
+            "σ²": sigma**2,
+            "SNR": snr,
+            "SNR dB": snr_db,
+            "Potencia señal": potencia_senal,
+            "Potencia ruido": potencia_ruido,
+            "Bits de datos originales": len(datos),
+            "Bits transmitidos": len(flujo_tx),
+            "Bits evaluados": bits_evaluados,
+            "Bits de redundancia CRC": len(flujo_tx) - len(datos),
+            "Padding aplicado": padding,
+            "Longitud de trama": longitud_trama,
+            "Errores de bit del canal": errores_bit_canal,
+            "BER del canal": ber_canal,
+            **metricas_crc,
+        }
+
+        filas.append(resumen)
+
+    return pd.DataFrame(filas)
 # ============================================================
 # Lógica Gráficas Estadísticas Logarítmicas
 # ============================================================
