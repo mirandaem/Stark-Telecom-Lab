@@ -247,11 +247,11 @@ def construir_tabla_muestras(
 
     return pd.DataFrame(
         {
-            "Índice": np.arange(1, n + 1),
+            "Índice de muestra [n]": np.arange(1, n + 1),
             "Bit Tx": list(bits_tx[:n]),
-            "Símbolo Tx s": simbolos[:n],
-            "Ruido n": ruido[:n],
-            "Recibido r = s + n": recibido[:n],
+            "Símbolo Tx s[n] [amplitud normalizada]": simbolos[:n],
+            "Ruido n[n] [amplitud normalizada]": ruido[:n],
+            "Recibido r[n] = s[n] + n[n] [amplitud normalizada]": recibido[:n],
             "Bit Rx": list(bits_rx[:n]),
             "Estado": [
                 "Correcto" if a == b else "Error"
@@ -343,6 +343,37 @@ def construir_tabla_metricas_teoricas() -> pd.DataFrame:
             ],
         }
     )
+
+
+
+# ============================================================
+# Unidades para visualización de tablas
+# ============================================================
+
+COLUMNAS_CON_UNIDADES = {
+    "σ": "σ [amplitud normalizada]",
+    "σ²": "σ² [amplitud normalizada²]",
+    "Bits evaluados": "Bits evaluados [bits]",
+    "Errores": "Errores [bits]",
+    "BER simulada": "BER simulada [adimensional]",
+    "BER teórica BPSK": "BER teórica BPSK [adimensional]",
+    "Potencia señal medida": "Potencia señal medida [amplitud normalizada²]",
+    "Potencia ruido medida": "Potencia ruido medida [amplitud normalizada²]",
+    "SNR medida": "SNR medida [adimensional]",
+    "SNR dB medida": "SNR medida [dB]",
+    "SNR aproximada": "SNR aproximada [adimensional]",
+    "SNR dB aproximada": "SNR aproximada [dB]",
+    "Eb/N0 aproximado": "Eb/N0 aproximado [adimensional]",
+    "Eb/N0 dB aproximado": "Eb/N0 aproximado [dB]",
+}
+
+
+def agregar_unidades_tabla(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Renombra únicamente las columnas de visualización para mostrar unidades.
+    No cambia los cálculos internos ni los nombres usados por las funciones.
+    """
+    return df.rename(columns=COLUMNAS_CON_UNIDADES)
 
 
 # ============================================================
@@ -495,8 +526,8 @@ def graficar_ber_vs_snr(df: pd.DataFrame) -> None:
     )
 
     ax.set_title("BER vs SNR dB")
-    ax.set_xlabel("SNR aproximada (dB)")
-    ax.set_ylabel("BER en escala logarítmica")
+    ax.set_xlabel("SNR aproximada [dB]")
+    ax.set_ylabel("BER [adimensional, escala logarítmica]")
     ax.grid(True, which="both")
     ax.legend()
 
@@ -546,8 +577,8 @@ def graficar_ber_vs_varianza(df: pd.DataFrame) -> None:
     )
 
     ax.set_title("BER vs varianza del ruido")
-    ax.set_xlabel("Varianza del ruido σ²")
-    ax.set_ylabel("BER en escala logarítmica")
+    ax.set_xlabel("Varianza del ruido σ² [amplitud normalizada²]")
+    ax.set_ylabel("BER [adimensional, escala logarítmica]")
     ax.grid(True, which="both")
     ax.legend()
 
@@ -600,8 +631,8 @@ def graficar_ber_vs_ebn0(df: pd.DataFrame) -> None:
     )
 
     ax.set_title("BER vs Eb/N0 aproximado")
-    ax.set_xlabel("Eb/N0 aproximado (dB)")
-    ax.set_ylabel("BER en escala logarítmica")
+    ax.set_xlabel("Eb/N0 aproximado [dB]")
+    ax.set_ylabel("BER [adimensional, escala logarítmica]")
     ax.grid(True, which="both")
     ax.legend()
 
@@ -646,8 +677,8 @@ def graficar_muestras_discretas(
     )
 
     ax.set_title("Muestras discretas transmitidas y recibidas")
-    ax.set_xlabel("Índice de muestra")
-    ax.set_ylabel("Amplitud")
+    ax.set_xlabel("Índice de muestra [n]")
+    ax.set_ylabel("Amplitud normalizada")
     ax.grid(True)
     ax.legend()
 
@@ -1032,7 +1063,7 @@ El objetivo es observar la BER, la SNR y las decisiones del receptor para un cas
 
             if modo == "Bits aleatorios":
                 cantidad_bits = st.selectbox(
-                    "Cantidad de bits",
+                    "Cantidad de bits [bits]",
                     [16, 32, 64, 128, 1000, 5000],
                     index=2,
                     key="g2_cantidad_puntual",
@@ -1062,7 +1093,7 @@ El objetivo es observar la BER, la SNR y las decisiones del receptor para un cas
                 bits_tx = limpiar_bits(bits_tx)
 
             sigma = st.slider(
-                "Desviación estándar del ruido σ",
+                "Desviación estándar del ruido σ [amplitud normalizada]",
                 min_value=0.0,
                 max_value=2.0,
                 value=0.40,
@@ -1080,7 +1111,7 @@ El objetivo es observar la BER, la SNR y las decisiones del receptor para un cas
             )
 
             max_muestras = st.slider(
-                "Muestras a mostrar",
+                "Muestras a mostrar [muestras]",
                 min_value=8,
                 max_value=80,
                 value=32,
@@ -1100,18 +1131,18 @@ con muchos bits.
 """
             )
 
-            st.metric("Varianza σ²", f"{sigma**2:.6f}")
+            st.metric("Varianza σ² [amplitud normalizada²]", f"{sigma**2:.6f}")
 
             ebn0 = aproximar_eb_n0_desde_sigma(sigma)
             snr_aprox = aproximar_snr_desde_sigma(sigma)
 
             st.metric(
-                "SNR aproximada dB",
+                "SNR aproximada [dB]",
                 "∞" if math.isinf(snr_aprox) else f"{lineal_a_db(snr_aprox):.3f}",
             )
 
             st.metric(
-                "Eb/N0 aproximado dB",
+                "Eb/N0 aproximado [dB]",
                 "∞" if math.isinf(ebn0) else f"{lineal_a_db(ebn0):.3f}",
             )
 
@@ -1137,19 +1168,19 @@ con muchos bits.
             st.subheader("Métricas del caso")
 
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Bits evaluados", int(metricas["bits"]))
-            c2.metric("Errores", int(metricas["errores"]))
-            c3.metric("BER", f"{metricas['BER']:.6f}")
+            c1.metric("Bits evaluados [bits]", int(metricas["bits"]))
+            c2.metric("Errores [bits]", int(metricas["errores"]))
+            c3.metric("BER [adimensional]", f"{metricas['BER']:.6f}")
             c4.metric(
-                "SNR dB medida",
+                "SNR medida [dB]",
                 "∞" if math.isinf(metricas["SNR_dB"]) else f"{metricas['SNR_dB']:.3f}",
             )
 
             c5, c6, c7, c8 = st.columns(4)
-            c5.metric("Potencia señal", f"{metricas['potencia_senal']:.6f}")
-            c6.metric("Potencia ruido", f"{metricas['potencia_ruido']:.6f}")
-            c7.metric("σ", f"{sigma:.3f}")
-            c8.metric("σ²", f"{sigma**2:.6f}")
+            c5.metric("Potencia señal [amplitud normalizada²]", f"{metricas['potencia_senal']:.6f}")
+            c6.metric("Potencia ruido [amplitud normalizada²]", f"{metricas['potencia_ruido']:.6f}")
+            c7.metric("σ [amplitud normalizada]", f"{sigma:.3f}")
+            c8.metric("σ² [amplitud normalizada²]", f"{sigma**2:.6f}")
 
             st.subheader("Muestras discretas")
 
@@ -1222,7 +1253,7 @@ ruido.
 
         with col_param:
             cantidad_bits_snr = st.selectbox(
-                "Cantidad de bits para barrido",
+                "Cantidad de bits para barrido [bits]",
                 [1000, 5000, 10000, 50000, 100000],
                 index=2,
                 key="g2_bits_snr",
@@ -1290,18 +1321,20 @@ Esto se debe a que la potencia promedio de los símbolos BPSK normalizados es ap
             st.subheader("Tabla del barrido")
 
             st.dataframe(
-                df_snr[
-                    [
-                        "σ",
-                        "σ²",
-                        "Bits evaluados",
-                        "Errores",
-                        "BER simulada",
-                        "BER teórica BPSK",
-                        "SNR dB aproximada",
-                        "Eb/N0 dB aproximado",
+                agregar_unidades_tabla(
+                    df_snr[
+                        [
+                            "σ",
+                            "σ²",
+                            "Bits evaluados",
+                            "Errores",
+                            "BER simulada",
+                            "BER teórica BPSK",
+                            "SNR dB aproximada",
+                            "Eb/N0 dB aproximado",
+                        ]
                     ]
-                ],
+                ),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -1339,7 +1372,7 @@ de cruzar el umbral de decisión.
 
         with col_param:
             cantidad_bits_var = st.selectbox(
-                "Cantidad de bits para barrido",
+                "Cantidad de bits para barrido [bits]",
                 [1000, 5000, 10000, 50000, 100000],
                 index=2,
                 key="g2_bits_var",
@@ -1405,18 +1438,20 @@ Usa directamente σ², por eso la tendencia esperada va en sentido opuesto a BER
             st.subheader("Tabla del barrido")
 
             st.dataframe(
-                df_var[
-                    [
-                        "σ",
-                        "σ²",
-                        "Bits evaluados",
-                        "Errores",
-                        "BER simulada",
-                        "BER teórica BPSK",
-                        "SNR dB aproximada",
-                        "Eb/N0 dB aproximado",
+                agregar_unidades_tabla(
+                    df_var[
+                        [
+                            "σ",
+                            "σ²",
+                            "Bits evaluados",
+                            "Errores",
+                            "BER simulada",
+                            "BER teórica BPSK",
+                            "SNR dB aproximada",
+                            "Eb/N0 dB aproximado",
+                        ]
                     ]
-                ],
+                ),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -1476,7 +1511,7 @@ $$
 
         with col_param:
             cantidad_bits_eb = st.selectbox(
-                "Cantidad de bits",
+                "Cantidad de bits [bits]",
                 [1000, 5000, 10000, 50000, 100000],
                 index=2,
                 key="g2_bits_eb",
@@ -1543,16 +1578,18 @@ La BER teórica representa la tendencia ideal para BPSK coherente en AWGN.
             st.subheader("Tabla Eb/N0")
 
             st.dataframe(
-                df_eb[
-                    [
-                        "σ",
-                        "σ²",
-                        "Eb/N0 aproximado",
-                        "Eb/N0 dB aproximado",
-                        "BER simulada",
-                        "BER teórica BPSK",
+                agregar_unidades_tabla(
+                    df_eb[
+                        [
+                            "σ",
+                            "σ²",
+                            "Eb/N0 aproximado",
+                            "Eb/N0 dB aproximado",
+                            "BER simulada",
+                            "BER teórica BPSK",
+                        ]
                     ]
-                ],
+                ),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -1582,7 +1619,7 @@ El objetivo es que el estudiante pueda leer las curvas correctamente.
 
             df_snr = st.session_state["g2_df_snr"]
 
-            st.dataframe(df_snr, use_container_width=True, hide_index=True)
+            st.dataframe(agregar_unidades_tabla(df_snr), use_container_width=True, hide_index=True)
 
             st.markdown(interpretar_barrido(df_snr))
         else:
