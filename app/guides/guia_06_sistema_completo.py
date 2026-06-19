@@ -1080,12 +1080,41 @@ def graficar_muestras_discretas(detalle: Dict[str, object], max_muestras: int = 
 def graficar_comparacion_ber(df: pd.DataFrame) -> None:
     """
     Grafica BER final por escenario en escala logarítmica.
+
+    Si en algún escenario no se observan errores finales, se representa como
+    BER < 1/N para evitar graficar cero en escala logarítmica.
     """
     df_plot = df.copy()
-    df_plot["BER ajustado"] = df_plot["BER final datos"].replace(0, 1e-6)
+
+    df_plot["BER final datos"] = pd.to_numeric(
+        df_plot["BER final datos"],
+        errors="coerce",
+    )
+    df_plot["Bits de datos originales"] = pd.to_numeric(
+        df_plot["Bits de datos originales"],
+        errors="coerce",
+    )
+
+    df_plot = df_plot.replace([np.inf, -np.inf], np.nan)
+    df_plot = df_plot.dropna(
+        subset=["Escenario", "BER final datos", "Bits de datos originales"]
+    )
+    df_plot = df_plot[df_plot["Bits de datos originales"] > 0]
+
+    if df_plot.empty:
+        st.info("No hay datos válidos para graficar BER por escenario.")
+        return
+
+    df_plot["Límite experimental 1/N"] = 1 / df_plot["Bits de datos originales"]
+    df_plot["BER para gráfica"] = df_plot.apply(
+        lambda fila: fila["BER final datos"]
+        if fila["BER final datos"] > 0
+        else fila["Límite experimental 1/N"],
+        axis=1,
+    )
 
     fig, ax = plt.subplots(figsize=(9, 4))
-    ax.bar(df_plot["Escenario"], df_plot["BER ajustado"])
+    ax.bar(df_plot["Escenario"], df_plot["BER para gráfica"])
     ax.set_yscale("log")
     ax.set_title("BER final de datos por escenario")
     ax.set_xlabel("Escenario")
@@ -1094,6 +1123,11 @@ def graficar_comparacion_ber(df: pd.DataFrame) -> None:
     plt.xticks(rotation=20)
     st.pyplot(fig)
     plt.close(fig)
+
+    if (df_plot["BER final datos"] == 0).any():
+        st.caption(
+            "Cuando no se observan errores finales, la barra representa el límite experimental BER < 1/N."
+        )
 
 
 def graficar_expansion(df: pd.DataFrame) -> None:
@@ -1114,42 +1148,154 @@ def graficar_expansion(df: pd.DataFrame) -> None:
 def graficar_ber_vs_sigma(df: pd.DataFrame) -> None:
     """
     Grafica BER final vs sigma para el sistema integrado.
+
+    Cada punto representa una simulación independiente para un valor específico de σ.
+    El eje vertical se mantiene en escala logarítmica y no se unen los puntos con línea
+    continua, para evitar interpretar la gráfica como una medición continua.
     """
     df_plot = df.copy()
-    df_plot["BER ajustado"] = df_plot["BER final datos"].replace(0, 1e-6)
+
+    df_plot["BER final datos"] = pd.to_numeric(
+        df_plot["BER final datos"],
+        errors="coerce",
+    )
+    df_plot["Bits de datos originales"] = pd.to_numeric(
+        df_plot["Bits de datos originales"],
+        errors="coerce",
+    )
+    df_plot["σ"] = pd.to_numeric(
+        df_plot["σ"],
+        errors="coerce",
+    )
+
+    df_plot = df_plot.replace([np.inf, -np.inf], np.nan)
+    df_plot = df_plot.dropna(subset=["σ", "BER final datos", "Bits de datos originales"])
+    df_plot = df_plot[df_plot["Bits de datos originales"] > 0]
+
+    if df_plot.empty:
+        st.info("No hay datos válidos para graficar BER vs σ.")
+        return
+
+    df_plot = df_plot.sort_values("σ")
+    df_plot["Límite experimental 1/N"] = 1 / df_plot["Bits de datos originales"]
+
+    df_con_eventos = df_plot[df_plot["BER final datos"] > 0]
+    df_sin_eventos = df_plot[df_plot["BER final datos"] == 0]
 
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.semilogy(df_plot["σ"], df_plot["BER ajustado"], marker="o")
+
+    if not df_con_eventos.empty:
+        ax.scatter(
+            df_con_eventos["σ"],
+            df_con_eventos["BER final datos"],
+            marker="o",
+            s=85,
+            label="BER final observado",
+            zorder=3,
+        )
+
+    if not df_sin_eventos.empty:
+        ax.scatter(
+            df_sin_eventos["σ"],
+            df_sin_eventos["Límite experimental 1/N"],
+            marker="v",
+            s=95,
+            label="0 errores observados: BER < 1/N",
+            zorder=4,
+        )
+
+    ax.set_yscale("log")
     ax.set_title("Sistema Hamming + CRC: BER final vs σ")
     ax.set_xlabel("Desviación estándar del ruido σ")
     ax.set_ylabel("BER final en escala logarítmica")
-    ax.grid(True, which="both")
+    ax.grid(True, which="major", linestyle="-", linewidth=0.8)
+    ax.grid(True, which="minor", linestyle=":", linewidth=0.5)
+    ax.legend()
+
     st.pyplot(fig)
     plt.close(fig)
+
+    st.caption(
+        "Cada punto representa una simulación independiente para un valor específico de σ. "
+        "El eje vertical está en escala logarítmica para visualizar valores pequeños de BER."
+    )
 
 
 def graficar_ber_vs_snr(df: pd.DataFrame) -> None:
     """
     Grafica BER final vs SNR dB para el sistema integrado.
+
+    Cada punto representa una simulación independiente. El eje vertical es logarítmico,
+    pero los puntos no se unen con línea continua.
     """
     df_plot = df.copy()
-    df_plot = df_plot.replace([np.inf, -np.inf], np.nan).dropna(subset=["SNR dB"])
-    df_plot["BER ajustado"] = df_plot["BER final datos"].replace(0, 1e-6)
+
+    df_plot = df_plot.replace([np.inf, -np.inf], np.nan)
+    df_plot["BER final datos"] = pd.to_numeric(
+        df_plot["BER final datos"],
+        errors="coerce",
+    )
+    df_plot["Bits de datos originales"] = pd.to_numeric(
+        df_plot["Bits de datos originales"],
+        errors="coerce",
+    )
+    df_plot["SNR dB"] = pd.to_numeric(
+        df_plot["SNR dB"],
+        errors="coerce",
+    )
+
+    df_plot = df_plot.dropna(
+        subset=["SNR dB", "BER final datos", "Bits de datos originales"]
+    )
+    df_plot = df_plot[df_plot["Bits de datos originales"] > 0]
 
     if df_plot.empty:
         st.info("No hay valores finitos de SNR para graficar.")
         return
 
     df_plot = df_plot.sort_values("SNR dB")
+    df_plot["Límite experimental 1/N"] = 1 / df_plot["Bits de datos originales"]
+
+    df_con_eventos = df_plot[df_plot["BER final datos"] > 0]
+    df_sin_eventos = df_plot[df_plot["BER final datos"] == 0]
 
     fig, ax = plt.subplots(figsize=(8, 4))
-    ax.semilogy(df_plot["SNR dB"], df_plot["BER ajustado"], marker="o")
+
+    if not df_con_eventos.empty:
+        ax.scatter(
+            df_con_eventos["SNR dB"],
+            df_con_eventos["BER final datos"],
+            marker="o",
+            s=85,
+            label="BER final observado",
+            zorder=3,
+        )
+
+    if not df_sin_eventos.empty:
+        ax.scatter(
+            df_sin_eventos["SNR dB"],
+            df_sin_eventos["Límite experimental 1/N"],
+            marker="v",
+            s=95,
+            label="0 errores observados: BER < 1/N",
+            zorder=4,
+        )
+
+    ax.set_yscale("log")
     ax.set_title("Sistema Hamming + CRC: BER final vs SNR dB")
     ax.set_xlabel("SNR dB")
     ax.set_ylabel("BER final en escala logarítmica")
-    ax.grid(True, which="both")
+    ax.grid(True, which="major", linestyle="-", linewidth=0.8)
+    ax.grid(True, which="minor", linestyle=":", linewidth=0.5)
+    ax.legend()
+
     st.pyplot(fig)
     plt.close(fig)
+
+    st.caption(
+        "Cada punto representa una simulación independiente para un valor específico de SNR. "
+        "El eje vertical está en escala logarítmica para visualizar valores pequeños de BER."
+    )
 
 
 # ============================================================
@@ -1168,9 +1314,7 @@ El objetivo es analizar un sistema digital completo que no solo transmite bits p
 canal ruidoso, sino que también aplica mecanismos de control de errores para mejorar
 la confiabilidad. El flujo general usado en esta guía es:
 
-```text
 Datos → CRC → Hamming → Canal con ruido → Hamming Rx → CRC Rx → Datos recuperados
-```
 
 Hamming se usa como mecanismo de corrección de errores simples, mientras que CRC se usa
 como mecanismo de detección de errores remanentes. Esta combinación permite estudiar
@@ -1267,9 +1411,7 @@ incorrecto del umbral y producir errores de bit.
 Hamming (7,4) es un código de bloque que toma 4 bits de datos y agrega 3 bits de paridad
 para formar una palabra de 7 bits. En esta app se usa la estructura:
 
-```text
 [P1 P2 D1 P4 D2 D3 D4]
-```
 
 En el receptor, las comprobaciones de paridad forman un síndrome. Si el síndrome es
 distinto de cero, su valor decimal indica la posición del error bajo la hipótesis de
@@ -1323,16 +1465,12 @@ error, pero no se garantiza de forma absoluta que no haya existido alteración
             """
 En esta guía, CRC se aplica primero y Hamming después:
 
-```text
 Datos → CRC → Hamming
-```
 
 Esto significa que Hamming protege tanto los datos como los bits CRC. Luego, en el receptor,
 se invierte el proceso:
 
-```text
 Hamming Rx → CRC Rx
-```
 
 La razón de este orden es la siguiente:
 
@@ -1343,7 +1481,7 @@ La razón de este orden es la siguiente:
 
 Esta arquitectura es didácticamente útil porque permite observar dos funciones distintas:
 
-- Hamming corrige;
+- Hamming corrige.
 - CRC detecta.
 
 Ambos mecanismos agregan redundancia, por lo que mejoran la confiabilidad pero aumentan
@@ -1646,10 +1784,10 @@ cuando cambia la SNR.
 
 Se espera que:
 
-- al aumentar σ, aumente la potencia de ruido;
-- al aumentar la potencia de ruido, disminuya la SNR;
-- al disminuir la SNR, aumente la probabilidad de error;
-- al aumentar los errores, Hamming y CRC pueden verse más exigidos.
+- Al aumentar σ, aumente la potencia de ruido.
+- Al aumentar la potencia de ruido, disminuya la SNR.
+- Al disminuir la SNR, aumente la probabilidad de error.
+- Al aumentar los errores, Hamming y CRC pueden verse más exigidos.
 """
         )
 
@@ -1937,23 +2075,23 @@ Realice las siguientes actividades:
             """
 Al finalizar esta guía, el estudiante debe concluir que:
 
-- un sistema digital puede modelarse como una cadena de transmisión y recepción;
-- el canal AWGN permite estudiar el efecto del ruido sobre los bits recibidos;
-- BPSK permite representar bits como símbolos positivos y negativos;
-- Hamming (7,4) agrega bits de paridad para corregir errores simples;
-- CRC agrega un residuo para detectar errores remanentes;
-- el flujo integrado usado es Datos → CRC → Hamming → Canal → Hamming Rx → CRC Rx;
-- Hamming y CRC cumplen funciones diferentes;
-- Hamming corrige, pero puede fallar ante errores múltiples;
-- CRC detecta, pero no corrige;
-- combinar ambos mejora la confiabilidad respecto a usar el canal sin protección;
-- la mejora tiene un costo: se transmiten más bits;
-- el BER canal mide el daño producido por el canal;
-- el BER post-Hamming mide la mejora después de la corrección;
-- el BER final de datos mide los errores que quedan en la información útil;
-- al aumentar σ, normalmente aumenta el BER;
-- al aumentar la SNR, normalmente disminuye el BER;
-- las conclusiones estadísticas son más confiables cuando se analizan muchos bits.
+- Un sistema digital puede modelarse como una cadena de transmisión y recepción.
+- El canal AWGN permite estudiar el efecto del ruido sobre los bits recibidos.
+- BPSK permite representar bits como símbolos positivos y negativos.
+- Hamming (7,4) agrega bits de paridad para corregir errores simples.
+- CRC agrega un residuo para detectar errores remanentes.
+- El flujo integrado usado es: Datos → CRC → Hamming → Canal → Hamming Rx → CRC Rx.
+- Hamming y CRC cumplen funciones diferentes dentro del sistema.
+- Hamming corrige errores simples, pero puede fallar ante errores múltiples.
+- CRC detecta errores remanentes, pero no corrige por sí mismo.
+- Combinar Hamming y CRC mejora la confiabilidad respecto a usar el canal sin protección.
+- La mejora de confiabilidad tiene un costo: se transmiten más bits.
+- El BER del canal mide el daño producido directamente por el canal.
+- El BER post-Hamming mide la mejora obtenida después de la corrección.
+- El BER final de datos mide los errores que permanecen en la información útil recuperada.
+- Al aumentar σ, normalmente aumenta el BER.
+- Al aumentar la SNR, normalmente disminuye el BER.
+- Las conclusiones estadísticas son más confiables cuando se analizan muchos bits.
 
 La teoría aplicada en esta guía se fundamenta en comunicaciones digitales, codificación
 de canal, control de errores, códigos Hamming, CRC, BER y SNR (Hamming, 1950; Lin &
