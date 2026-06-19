@@ -541,49 +541,77 @@ def graficar_metrica_logaritmica_con_limite(
 
     df_plot = df_plot.sort_values(columna_x, ascending=ordenar_ascendente)
 
+    columna_y = f"{columna_metrica} para gráfica"
+
     df_con_eventos = df_plot[df_plot[columna_metrica] > 0]
     df_sin_eventos = df_plot[df_plot[columna_metrica] == 0]
 
     fig, ax = plt.subplots(figsize=(9, 4.5))
 
+    if len(df_plot) >= 2:
+        ax.plot(
+            df_plot[columna_x],
+            df_plot[columna_y],
+            linestyle="--",
+            linewidth=1.3,
+            alpha=0.85,
+            label="Guía visual de tendencia",
+        )
+
     if not df_con_eventos.empty:
-        ax.semilogy(
+        ax.scatter(
             df_con_eventos[columna_x],
             df_con_eventos[columna_metrica],
             marker="o",
-            linestyle="-",
+            s=75,
             label=etiqueta_metrica,
+            zorder=3,
         )
 
     if not df_sin_eventos.empty:
-        ax.semilogy(
+        ax.scatter(
             df_sin_eventos[columna_x],
             df_sin_eventos["Límite experimental 1/N"],
             marker="v",
-            linestyle="None",
+            s=90,
             label="0 eventos observados: métrica < 1/N",
+            zorder=4,
         )
 
+    ax.set_yscale("log")
     ax.set_title(titulo)
     ax.set_xlabel(etiqueta_x)
     ax.set_ylabel(etiqueta_y)
-    ax.grid(True, which="both")
+
+    valores_y = df_plot[columna_y].replace([np.inf, -np.inf], np.nan).dropna()
+    valores_y = valores_y[valores_y > 0]
+
+    if not valores_y.empty:
+        y_min = max(float(valores_y.min()) / 5, 1e-12)
+        y_max = min(float(valores_y.max()) * 5, 2.0)
+        ax.set_ylim(y_min, y_max)
+
+    ax.grid(True, which="major", linestyle="-", linewidth=0.8)
+    ax.grid(True, which="minor", linestyle=":", linewidth=0.5)
     ax.legend()
 
     st.pyplot(fig)
     plt.close(fig)
 
+    st.caption(
+        "Cada punto representa una simulación independiente para un valor específico del parámetro evaluado. "
+        "La línea punteada se incluye únicamente como guía visual de tendencia; no representa una medición continua."
+    )
+
     if not df_sin_eventos.empty:
         st.info(
             """
-En los puntos marcados como **0 eventos observados**, la métrica calculada fue cero
-para la cantidad de pruebas realizadas. Sin embargo, esto no significa que la probabilidad
-real del evento sea exactamente cero. En escala logarítmica se representa el límite
-experimental:
+Los marcadores triangulares indican que no se observó ese evento durante la simulación.
+Esto no significa que la probabilidad real sea exactamente cero. Se representa como:
 
 métrica < 1/N
 
-donde N es la cantidad de bits, tramas o pruebas evaluadas según la métrica analizada.
+donde N es la cantidad de bits, tramas o pruebas evaluadas.
 """
         )
 
@@ -616,6 +644,20 @@ def graficar_tasa_no_detectada_vs_sigma(df: pd.DataFrame) -> None:
     )
 
 
+def graficar_ber_canal_vs_sigma(df: pd.DataFrame) -> None:
+    graficar_metrica_logaritmica_con_limite(
+        df=df,
+        columna_x="σ",
+        columna_metrica="BER del canal",
+        columna_n="Bits evaluados",
+        titulo="BER del canal vs σ",
+        etiqueta_x="Desviación estándar del ruido σ",
+        etiqueta_y="BER en escala logarítmica",
+        etiqueta_metrica="BER del canal observada",
+        ordenar_ascendente=True,
+    )
+
+
 def graficar_ber_canal_vs_snr(df: pd.DataFrame) -> None:
     graficar_metrica_logaritmica_con_limite(
         df=df,
@@ -625,7 +667,7 @@ def graficar_ber_canal_vs_snr(df: pd.DataFrame) -> None:
         titulo="BER del canal vs SNR dB",
         etiqueta_x="SNR dB",
         etiqueta_y="BER en escala logarítmica",
-        etiqueta_metrica="BER del canal observado",
+        etiqueta_metrica="BER del canal observada",
         ordenar_ascendente=True,
     )
 
@@ -1199,8 +1241,8 @@ Recomendación:
 
             sigmas_texto = st.text_input(
                 "Valores de σ separados por coma",
-                value="0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00",
-                key="g5_sigmas_comparacion",
+                value="0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00",
+                key="g5_sigmas_comparacion_v3",
             )
 
             semilla_datos_comp = st.number_input(
@@ -1288,6 +1330,9 @@ probabilidad de errores no detectados.
 
             st.subheader("Tasa de error no detectado vs σ")
             graficar_tasa_no_detectada_vs_sigma(df_comp)
+
+            st.subheader("BER del canal vs σ")
+            graficar_ber_canal_vs_sigma(df_comp)
 
             st.subheader("BER del canal vs SNR dB")
             graficar_ber_canal_vs_snr(df_comp)
