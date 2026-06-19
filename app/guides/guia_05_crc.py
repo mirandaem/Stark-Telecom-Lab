@@ -541,29 +541,17 @@ def graficar_metrica_logaritmica_con_limite(
 
     df_plot = df_plot.sort_values(columna_x, ascending=ordenar_ascendente)
 
-    columna_y = f"{columna_metrica} para gráfica"
-
     df_con_eventos = df_plot[df_plot[columna_metrica] > 0]
     df_sin_eventos = df_plot[df_plot[columna_metrica] == 0]
 
     fig, ax = plt.subplots(figsize=(9, 4.5))
-
-    if len(df_plot) >= 2:
-        ax.plot(
-            df_plot[columna_x],
-            df_plot[columna_y],
-            linestyle="--",
-            linewidth=1.3,
-            alpha=0.85,
-            label="Guía visual de tendencia",
-        )
 
     if not df_con_eventos.empty:
         ax.scatter(
             df_con_eventos[columna_x],
             df_con_eventos[columna_metrica],
             marker="o",
-            s=75,
+            s=85,
             label=etiqueta_metrica,
             zorder=3,
         )
@@ -573,7 +561,7 @@ def graficar_metrica_logaritmica_con_limite(
             df_sin_eventos[columna_x],
             df_sin_eventos["Límite experimental 1/N"],
             marker="v",
-            s=90,
+            s=95,
             label="0 eventos observados: métrica < 1/N",
             zorder=4,
         )
@@ -583,12 +571,22 @@ def graficar_metrica_logaritmica_con_limite(
     ax.set_xlabel(etiqueta_x)
     ax.set_ylabel(etiqueta_y)
 
-    valores_y = df_plot[columna_y].replace([np.inf, -np.inf], np.nan).dropna()
-    valores_y = valores_y[valores_y > 0]
+    valores_y = []
 
-    if not valores_y.empty:
-        y_min = max(float(valores_y.min()) / 5, 1e-12)
-        y_max = min(float(valores_y.max()) * 5, 2.0)
+    if not df_con_eventos.empty:
+        valores_y.extend(df_con_eventos[columna_metrica].tolist())
+
+    if not df_sin_eventos.empty:
+        valores_y.extend(df_sin_eventos["Límite experimental 1/N"].tolist())
+
+    valores_y = [
+        valor for valor in valores_y
+        if pd.notna(valor) and np.isfinite(valor) and valor > 0
+    ]
+
+    if valores_y:
+        y_min = max(min(valores_y) / 5, 1e-12)
+        y_max = min(max(valores_y) * 5, 2.0)
         ax.set_ylim(y_min, y_max)
 
     ax.grid(True, which="major", linestyle="-", linewidth=0.8)
@@ -600,7 +598,7 @@ def graficar_metrica_logaritmica_con_limite(
 
     st.caption(
         "Cada punto representa una simulación independiente para un valor específico del parámetro evaluado. "
-        "La línea punteada se incluye únicamente como guía visual de tendencia; no representa una medición continua."
+        "El eje vertical se mantiene en escala logarítmica para visualizar métricas pequeñas como BER, FER o tasa de error."
     )
 
     if not df_sin_eventos.empty:
@@ -1242,7 +1240,7 @@ Recomendación:
             sigmas_texto = st.text_input(
                 "Valores de σ separados por coma",
                 value="0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00",
-                key="g5_sigmas_comparacion_v3",
+                key="g5_sigmas_comparacion_v4",
             )
 
             semilla_datos_comp = st.number_input(
