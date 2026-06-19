@@ -982,7 +982,7 @@ Mira estos cuatro casos esenciales:
 Por esta razón teórica, la compuerta lógica **XOR (OR Exclusiva)** es la herramienta directa para implementar esta aritmética tanto en algoritmos de software como en circuitos de hardware (Forouzan, 2013).
 """
         )
-
+""""
 ### 5. Cálculo del residuo
 
 Sea $M(x)$ el mensaje original. Primero se multiplica por $x^r$, lo que equivale a agregar $r$ ceros al final de la secuencia binaria. Luego se divide entre el generador usando la resta de módulo 2 explicada arriba:
