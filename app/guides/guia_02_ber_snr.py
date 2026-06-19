@@ -724,11 +724,11 @@ El propósito de la guía es que el estudiante comprenda cómo se comporta la BE
 cambian las condiciones del canal. Para ello, se comparan diferentes niveles de ruido
 y se analizan métricas fundamentales como:
 
-- la tasa de error de bit o BER;
-- la relación señal-ruido o SNR;
-- la varianza del ruido σ²;
-- la energía por bit respecto a la densidad espectral de ruido Eb/N0;
-- la comparación entre BER simulada y BER teórica para BPSK en AWGN.
+- La tasa de error de bit o BER;
+- La relación señal-ruido o SNR;
+- La varianza del ruido σ²;
+- La energía por bit respecto a la densidad espectral de ruido Eb/N0;
+- La comparación entre BER simulada y BER teórica para BPSK en AWGN.
 
 Las gráficas de esta guía utilizan escala logarítmica para representar la BER, debido
 a que esta métrica puede tomar valores muy pequeños. Esto permite observar con mayor
