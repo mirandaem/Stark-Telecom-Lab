@@ -1340,17 +1340,17 @@ Realice las siguientes actividades:
             """
 Al finalizar esta guía, el estudiante debe concluir que:
 
-- el receptor calcula un síndrome a partir de verificaciones de paridad;
-- el término técnico correcto en español es síndrome;
-- el síndrome se interpreta como la posición del error bajo la hipótesis de un único error;
-- la corrección se realiza invirtiendo el bit indicado por el síndrome;
+- El receptor calcula un síndrome a partir de verificaciones de paridad;
+- El término técnico correcto en español es síndrome;
+- El síndrome se interpreta como la posición del error bajo la hipótesis de un único error;
+- La corrección se realiza invirtiendo el bit indicado por el síndrome;
 - Hamming (7,4) permite recuperar los 4 bits de datos si ocurre un solo error en el bloque;
-- las secuencias largas se decodifican dividiéndolas en bloques de 7 bits;
-- en recepción no se agregan bits de relleno automáticamente;
-- si la secuencia no es múltiplo de 7, no puede dividirse correctamente en palabras Hamming;
+- Las secuencias largas se decodifican dividiéndolas en bloques de 7 bits;
+- En recepción no se agregan bits de relleno automáticamente;
+- Si la secuencia no es múltiplo de 7, no puede dividirse correctamente en palabras Hamming;
 - Hamming corrige un error por bloque, no errores múltiples dentro del mismo bloque;
-- cuando ocurren errores múltiples, el síndrome puede inducir una corrección incorrecta;
-- esta limitación justifica la integración posterior de CRC como detector de errores remanentes.
+- Cuando ocurren errores múltiples, el síndrome puede inducir una corrección incorrecta;
+- Esta limitación justifica la integración posterior de CRC como detector de errores remanentes.
 
 La teoría aplicada en esta guía se fundamenta en el código Hamming original, en la teoría
 de códigos de control de errores y en los principios de detección y corrección de errores
