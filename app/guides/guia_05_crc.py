@@ -970,8 +970,8 @@ Ese valor $r$ indica cuántos bits CRC se agregan al mensaje.
 
 Para resolver la división del CRC, debemos olvidar las reglas de la división decimal. Aquí operamos en el **Campo de Galois $GF(2)$**, lo que implica dos reglas matemáticas fundamentales (Lin & Costello, 2004):
 
-1. **Aritmética sin acarreo:** Las operaciones se hacen bit a bit, sin importar lo que pase a los posiciones adyacentes.
-2. **La suma es idéntica a la resta ($+ = -$):** Como el sistema es cerrado y solo contiene los elementos $\{0, 1\}$, sumar o restar produce exactamente el mismo resultado algebraico.
+1. **Aritmética sin acarreo:** Las operaciones se hacen bit a bit, sin importar lo que pase a las posiciones adyacentes.
+2. **La suma es idéntica a la resta ($+ = -$):** Como el sistema es cerrado y solo contiene los elementos $\\{0, 1\\}$, sumar o restar produce exactamente el mismo resultado algebraico.
 
 Mira estos cuatro casos esenciales:
 - $0 \\oplus 0 = 0 \\quad \\rightarrow \\quad 0 + 0 = 0 \\quad \\text{y} \\quad 0 - 0 = 0$
