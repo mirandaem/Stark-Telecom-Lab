@@ -158,11 +158,11 @@ def aproximar_eb_n0_desde_sigma(sigma: float) -> float:
     Aproximación didáctica de Eb/N0 para BPSK normalizado.
 
     En esta app:
-    - los símbolos BPSK son -1 y +1;
-    - se asume tiempo de bit normalizado Tb = 1;
-    - por tanto, Eb ≈ 1;
-    - el ruido real agregado tiene varianza sigma²;
-    - para AWGN baseband real, sigma² ≈ N0/2.
+    - Los símbolos BPSK son -1 y +1;
+    - Se asume tiempo de bit normalizado Tb = 1;
+    - Por tanto, Eb ≈ 1;
+    - El ruido real agregado tiene varianza sigma²;
+    - Para AWGN baseband real, sigma² ≈ N0/2.
 
     Entonces:
 
@@ -1715,19 +1715,19 @@ Realice las siguientes actividades:
             """
 Al finalizar esta guía, el estudiante debe concluir que:
 
-- la BER mide la proporción de bits recibidos incorrectamente;
-- el canal AWGN se modela como $r = s + n$;
-- el ruido se modela como una variable gaussiana de media cero y varianza $\\sigma^2$;
-- al aumentar $\\sigma$, aumenta $\\sigma^2$;
-- al aumentar $\\sigma^2$, aumenta la potencia estadística del ruido;
-- al aumentar el ruido, disminuye la SNR;
-- al aumentar la SNR, la BER tiende a disminuir;
-- al aumentar la varianza, la BER tiende a aumentar;
+- La BER mide la proporción de bits recibidos incorrectamente;
+- El canal AWGN se modela como $r = s + n$;
+- El ruido se modela como una variable gaussiana de media cero y varianza $\\sigma^2$;
+- El aumentar $\\sigma$, aumenta $\\sigma^2$;
+- Al aumentar $\\sigma^2$, aumenta la potencia estadística del ruido;
+- Al aumentar el ruido, disminuye la SNR;
+- Al aumentar la SNR, la BER tiende a disminuir;
+- Al aumentar la varianza, la BER tiende a aumentar;
 - BER vs SNR y BER vs varianza no son la misma gráfica;
-- la aproximación $E_b/N_0 \\approx 1/(2\\sigma^2)$ permite comparar la simulación con teoría BPSK;
-- la BER teórica para BPSK en AWGN se puede expresar como $P_b = Q(\\sqrt{2E_b/N_0})$;
-- la escala logarítmica es adecuada para visualizar BER;
-- las simulaciones con más bits producen estimaciones más estables.
+- La aproximación $E_b/N_0 \\approx 1/(2\\sigma^2)$ permite comparar la simulación con teoría BPSK;
+- La BER teórica para BPSK en AWGN se puede expresar como $P_b = Q(\\sqrt{2E_b/N_0})$;
+- La escala logarítmica es adecuada para visualizar BER;
+- Las simulaciones con más bits producen estimaciones más estables.
 
 La teoría aplicada en esta guía se fundamenta en comunicaciones digitales, ruido AWGN,
 BER, SNR y análisis de desempeño de sistemas BPSK (Proakis & Salehi, 2008; Sklar, 2001;
