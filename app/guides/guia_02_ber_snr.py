@@ -539,7 +539,21 @@ def graficar_ber_vs_snr(df: pd.DataFrame) -> None:
             f"Nota: las BER simuladas iguales a 0 se grafican con un piso visual de {piso:.2e} "
             "para poder mostrarlas en escala logarítmica. La tabla conserva el valor real."
         )
+    st.info(
+        """
+**Interpretación de la diferencia entre BER teórica y BER simulada**
 
+La diferencia entre la BER teórica y la BER simulada aparece principalmente en valores altos de SNR. La curva teórica representa una probabilidad ideal de error para BPSK en un canal AWGN, mientras que la simulación cuenta errores sobre una cantidad finita de bits.
+
+Si no se observan errores durante la simulación, no significa que la BER sea exactamente cero. Experimentalmente se interpreta como:
+
+BER < 1/N
+
+donde N representa la cantidad de bits evaluados.
+
+Para acercarse más a la curva teórica en valores altos de SNR, sería necesario transmitir una cantidad mucho mayor de bits, lo cual aumentaría el tiempo de ejecución de la simulación.
+"""
+    )
 
 def graficar_ber_vs_varianza(df: pd.DataFrame) -> None:
     """
@@ -590,7 +604,21 @@ def graficar_ber_vs_varianza(df: pd.DataFrame) -> None:
             f"Nota: las BER simuladas iguales a 0 se grafican con un piso visual de {piso:.2e} "
             "para poder mostrarlas en escala logarítmica. La tabla conserva el valor real."
         )
+    st.info(
+        """
+**Interpretación de la diferencia entre BER teórica y BER simulada**
 
+La diferencia entre la BER teórica y la BER simulada aparece principalmente cuando la varianza del ruido es muy baja. En ese caso, la curva teórica puede indicar una probabilidad de error extremadamente pequeña, mientras que la simulación solo puede registrar errores si estos ocurren dentro de la cantidad finita de bits transmitidos.
+
+Si no se observan errores durante la simulación, no significa que la BER sea exactamente cero. Experimentalmente se interpreta como:
+
+BER < 1/N
+
+donde N representa la cantidad de bits evaluados.
+
+Para acercarse más a la curva teórica en valores bajos de varianza, sería necesario transmitir una cantidad mucho mayor de bits, lo cual aumentaría el tiempo de ejecución de la simulación.
+"""
+    )
 
 def graficar_ber_vs_ebn0(df: pd.DataFrame) -> None:
     """
