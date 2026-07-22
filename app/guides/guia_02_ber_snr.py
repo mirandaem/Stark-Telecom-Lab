@@ -539,7 +539,9 @@ def graficar_ber_vs_snr(df: pd.DataFrame) -> None:
             f"Nota: las BER simuladas iguales a 0 se grafican con un piso visual de {piso:.2e} "
             "para poder mostrarlas en escala logarítmica. La tabla conserva el valor real."
         )
-        st.info(
+    bits_evaluados = int(df["Bits evaluados"].max())
+    limite_observable = 1 / bits_evaluados
+    st.info(
         f"""
 **Explicación de la discrepancia entre la BER teórica y la BER simulada**
 
