@@ -2228,7 +2228,34 @@ solicitada es la gráfica anterior.
                 use_container_width=True,
                 hide_index=True,
             )
+            st.info(
+                """
+**Relación entre BER post-Hamming y BER final de datos**
 
+La BER post-Hamming y la BER final de datos son métricas relacionadas, pero no representan
+exactamente la misma etapa del sistema.
+
+La **BER post-Hamming** mide los errores que permanecen después de aplicar la corrección
+Hamming en el receptor. Esta métrica permite observar si Hamming logró reducir los errores
+introducidos por el canal.
+
+La **BER final de datos** mide los errores que permanecen únicamente en la información útil
+recuperada al final del sistema, después de la verificación CRC y de la extracción de los
+datos originales.
+
+Estas dos métricas pueden ser iguales o diferentes. Si los errores residuales después de
+Hamming afectan directamente a los bits de datos, la BER final puede coincidir con la BER
+post-Hamming. En cambio, si los errores afectan bits de redundancia, bits CRC, bits de paridad
+o posiciones que no forman parte directa de los datos originales, los valores pueden diferir.
+
+También debe recordarse que CRC no corrige errores. CRC solo detecta si una trama todavía
+presenta errores remanentes. Por tanto, la reducción de BER proviene principalmente de Hamming,
+mientras que CRC aporta verificación.
+
+La relación esperada es que la BER post-Hamming y la BER final de datos mantengan una tendencia
+similar y que, bajo condiciones moderadas de ruido, sean menores que la BER del canal.
+"""
+            )
             st.subheader("Sistema Hamming + CRC: BER final vs σ")
             graficar_ber_vs_sigma(df_comp)
 
