@@ -1042,7 +1042,55 @@ ser menor, porque se transmiten bits adicionales que solo completan el bloque.
                 st.success(
                     "No fue necesario agregar bits de relleno porque la longitud del mensaje ya era múltiplo de 4."
                 )
+            st.info(
+                f"""
+**Definición de tasa, eficiencia y redundancia en la codificación por bloques**
 
+En la codificación Hamming (7,4), cada bloque de entrada está formado por **k = 4 bits de datos**
+y genera una palabra codificada de **n = 7 bits**. Los tres bits adicionales corresponden a bits
+de paridad, los cuales agregan redundancia estructurada para que el receptor pueda detectar y
+corregir errores simples.
+
+La **tasa por bloque η** se define como la relación entre la cantidad de bits de datos útiles por
+bloque y la cantidad total de bits codificados por bloque:
+
+**η = k/n = 4/7 = {tasa_codigo:.4f}**
+
+Este valor indica que, en cada palabra codificada de siete bits, cuatro bits corresponden a
+información original y tres bits corresponden a redundancia de paridad. Su utilidad es mostrar
+la eficiencia ideal del código Hamming (7,4), sin considerar todavía los bits de relleno.
+
+La **eficiencia efectiva** considera el mensaje completo que se desea transmitir. Se calcula como:
+
+**Eficiencia efectiva = bits originales / bits codificados**
+
+En este caso:
+
+**Eficiencia efectiva = {len(bits_largos)} / {bits_codificados} = {eficiencia_efectiva:.4f}**
+
+Este valor puede ser menor que la tasa por bloque cuando el mensaje original no es múltiplo de
+cuatro, porque la app agrega bits de relleno para completar el último bloque. Aunque estos bits
+no son paridad, sí ocupan espacio dentro de la transmisión codificada.
+
+La **redundancia efectiva** representa la fracción de la transmisión codificada que no corresponde
+directamente a bits originales del mensaje. Se calcula como:
+
+**Redundancia efectiva = 1 - eficiencia efectiva**
+
+Para este caso:
+
+**Redundancia efectiva = 1 - {eficiencia_efectiva:.4f} = {1 - eficiencia_efectiva:.4f}**
+
+Esta redundancia incluye los bits de paridad generados por Hamming y, cuando existen, los bits de
+relleno agregados para completar el último bloque. Su utilidad es medir el costo de transmisión
+asociado al uso del código corrector.
+
+En conjunto, estos parámetros permiten analizar el compromiso entre confiabilidad y eficiencia.
+La tasa por bloque describe la eficiencia ideal de Hamming (7,4), mientras que la eficiencia
+efectiva y la redundancia efectiva describen el comportamiento real del mensaje procesado por
+la plataforma.
+"""
+            )
             st.subheader("Tabla de bloques codificados")
 
             st.dataframe(tabla_bloques, use_container_width=True, hide_index=True)
