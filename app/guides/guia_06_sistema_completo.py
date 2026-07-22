@@ -917,6 +917,83 @@ def comparar_por_sigma(
     return pd.DataFrame(filas)
 
 
+def calcular_snr_db_referencia(sigma: float) -> float:
+    """
+    Calcula una SNR de referencia para símbolos BPSK normalizados.
+
+    En la app se utiliza una representación BPSK normalizada, donde los símbolos
+    transmitidos son -1 y +1. Por ello, la potencia promedio de la señal se
+    aproxima a 1. Si el ruido AWGN tiene desviación estándar sigma, su potencia
+    se aproxima a sigma^2. Bajo esta simplificación:
+
+    SNR = 1 / sigma^2
+    """
+    if sigma <= 0:
+        return math.inf
+
+    snr_lineal = 1 / (sigma ** 2)
+    return 10 * math.log10(snr_lineal)
+
+
+def comparar_sin_proteccion_vs_hamming_crc_por_snr(
+    cantidad_bits: int,
+    tamano_payload: int,
+    generador: str,
+    valores_sigma: List[float],
+    semilla: int,
+) -> pd.DataFrame:
+    """
+    Compara BER final vs SNR dB entre dos escenarios:
+
+    1. Sistema sin protección.
+    2. Sistema integrado Hamming + CRC.
+
+    Esta comparación responde a la necesidad de contrastar el desempeño del
+    sistema base contra el sistema protegido bajo los mismos niveles de ruido.
+    """
+    datos = generar_bits_aleatorios(cantidad_bits, semilla=semilla)
+
+    filas = []
+
+    for i, sigma in enumerate(valores_sigma):
+        snr_db_ref = calcular_snr_db_referencia(sigma)
+        semilla_canal = semilla + (1000 * (i + 1))
+
+        resumen_sin, _ = simular_sin_proteccion(
+            datos=datos,
+            sigma=sigma,
+            semilla=semilla_canal,
+        )
+
+        resumen_protegido, _ = simular_hamming_crc(
+            datos=datos,
+            tamano_payload=tamano_payload,
+            generador=generador,
+            sigma=sigma,
+            semilla=semilla_canal,
+        )
+
+        for resumen in [resumen_sin, resumen_protegido]:
+            filas.append(
+                {
+                    "Escenario": resumen["Escenario"],
+                    "σ": sigma,
+                    "σ²": sigma ** 2,
+                    "SNR dB": snr_db_ref,
+                    "SNR dB medido": resumen["SNR dB"],
+                    "BER final datos": resumen["BER final datos"],
+                    "Errores finales": resumen["Errores finales"],
+                    "Bits de datos originales": resumen["Bits de datos originales"],
+                    "Bits transmitidos por canal": resumen["Bits transmitidos por canal"],
+                    "Bits de redundancia": resumen["Bits de redundancia"],
+                    "Factor de expansión": resumen["Factor de expansión"],
+                    "Tramas detectadas por CRC": resumen["Tramas detectadas por CRC"],
+                }
+            )
+
+    return pd.DataFrame(filas)
+
+
 # ============================================================
 # Tablas teóricas
 # ============================================================
@@ -1295,6 +1372,101 @@ def graficar_ber_vs_snr(df: pd.DataFrame) -> None:
     st.caption(
         "Cada punto representa una simulación independiente para un valor específico de SNR. "
         "El eje vertical está en escala logarítmica para visualizar valores pequeños de BER."
+    )
+
+
+def graficar_ber_vs_snr_comparativo(df: pd.DataFrame) -> None:
+    """
+    Grafica BER final vs SNR dB comparando:
+
+    - Sistema sin protección.
+    - Sistema con Hamming + CRC.
+
+    Si no se observan errores, se representa el límite experimental BER < 1/N
+    para poder mostrar el punto en escala logarítmica.
+    """
+    df_plot = df.copy()
+
+    df_plot = df_plot.replace([np.inf, -np.inf], np.nan)
+    df_plot["BER final datos"] = pd.to_numeric(
+        df_plot["BER final datos"],
+        errors="coerce",
+    )
+    df_plot["Bits de datos originales"] = pd.to_numeric(
+        df_plot["Bits de datos originales"],
+        errors="coerce",
+    )
+    df_plot["SNR dB"] = pd.to_numeric(
+        df_plot["SNR dB"],
+        errors="coerce",
+    )
+
+    df_plot = df_plot.dropna(
+        subset=["Escenario", "SNR dB", "BER final datos", "Bits de datos originales"]
+    )
+    df_plot = df_plot[df_plot["Bits de datos originales"] > 0]
+
+    if df_plot.empty:
+        st.info("No hay datos válidos para graficar la comparación BER vs SNR.")
+        return
+
+    df_plot["Límite experimental 1/N"] = 1 / df_plot["Bits de datos originales"]
+    df_plot["BER para gráfica"] = df_plot.apply(
+        lambda fila: fila["BER final datos"]
+        if fila["BER final datos"] > 0
+        else fila["Límite experimental 1/N"],
+        axis=1,
+    )
+
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+
+    escenarios = [
+        ("Sin protección", "o"),
+        ("Hamming + CRC", "s"),
+    ]
+
+    for escenario, marcador in escenarios:
+        df_esc = df_plot[df_plot["Escenario"] == escenario].sort_values("SNR dB")
+
+        if df_esc.empty:
+            continue
+
+        ax.plot(
+            df_esc["SNR dB"],
+            df_esc["BER para gráfica"],
+            marker=marcador,
+            linewidth=1.6,
+            label=escenario,
+            zorder=3,
+        )
+
+        df_sin_eventos = df_esc[df_esc["BER final datos"] == 0]
+
+        if not df_sin_eventos.empty:
+            ax.scatter(
+                df_sin_eventos["SNR dB"],
+                df_sin_eventos["Límite experimental 1/N"],
+                marker="v",
+                s=90,
+                label=f"{escenario}: 0 errores observados",
+                zorder=4,
+            )
+
+    ax.set_yscale("log")
+    ax.set_title("Comparación BER final vs SNR dB")
+    ax.set_xlabel("SNR dB")
+    ax.set_ylabel("BER final en escala logarítmica")
+    ax.grid(True, which="major", linestyle="-", linewidth=0.8)
+    ax.grid(True, which="minor", linestyle=":", linewidth=0.5)
+    ax.legend()
+
+    st.pyplot(fig)
+    plt.close(fig)
+
+    st.caption(
+        "La gráfica compara el sistema sin protección contra el sistema Hamming + CRC "
+        "bajo los mismos valores de σ. Cuando no se observan errores, el punto se muestra "
+        "como límite experimental BER < 1/N para poder representarlo en escala logarítmica."
     )
 
 
@@ -1774,20 +1946,25 @@ lectura. Las métricas anteriores sí se calculan usando toda la secuencia simul
             st.session_state["g6_payload_resultado"] = tamano_payload
 
     with tabs[4]:
-        st.header("Comparación estadística del sistema Hamming + CRC")
+        st.header("Comparación estadística del sistema")
 
         st.markdown(
             """
-En esta sección se evalúa únicamente el sistema integrado Hamming + CRC para distintos
-valores de ruido. El objetivo es observar cómo cambia el BER final cuando aumenta σ y
-cuando cambia la SNR.
+En esta sección se evalúa el sistema integrado Hamming + CRC para distintos valores de
+ruido y, además, se incorpora una comparación directa contra el sistema sin protección.
+
+El objetivo es observar cómo cambia el BER final cuando varía la SNR y comparar si la
+incorporación de Hamming + CRC reduce los errores finales respecto a transmitir los datos
+directamente por el canal AWGN.
 
 Se espera que:
 
 - Al aumentar σ, aumente la potencia de ruido.
 - Al aumentar la potencia de ruido, disminuya la SNR.
 - Al disminuir la SNR, aumente la probabilidad de error.
-- Al aumentar los errores, Hamming y CRC pueden verse más exigidos.
+- El sistema sin protección sea más vulnerable a los errores del canal.
+- El sistema Hamming + CRC reduzca errores finales cuando Hamming pueda corregir errores simples.
+- La mejora de confiabilidad tenga un costo en redundancia y factor de expansión.
 """
         )
 
@@ -1829,14 +2006,15 @@ Se espera que:
                 key="g6_semilla_comp",
             )
 
-            ejecutar_comp = st.button("Comparar Hamming + CRC contra σ")
+            ejecutar_comp = st.button("Ejecutar comparación estadística")
 
         with col_info:
             st.info(
                 """
-Esta comparación es útil para justificar el uso de gráficas BER vs σ y BER vs SNR dB.
+Esta comparación permite revisar el comportamiento del BER frente a σ y SNR dB.
 
-La escala logarítmica ayuda cuando los valores de BER son pequeños.
+También permite contrastar el sistema sin protección contra el sistema Hamming + CRC,
+como pide la observación del documento.
 """
             )
 
@@ -1869,7 +2047,7 @@ La escala logarítmica ayuda cuando los valores de BER son pequeños.
                 semilla=int(semilla_comp),
             )
 
-            st.subheader("Tabla de comparación")
+            st.subheader("Tabla del sistema Hamming + CRC")
 
             st.dataframe(
                 df_comp[
@@ -1890,13 +2068,53 @@ La escala logarítmica ayuda cuando los valores de BER son pequeños.
                 hide_index=True,
             )
 
-            st.subheader("BER final vs σ")
+            st.subheader("Sistema Hamming + CRC: BER final vs σ")
             graficar_ber_vs_sigma(df_comp)
 
-            st.subheader("BER final vs SNR dB")
+            st.subheader("Sistema Hamming + CRC: BER final vs SNR dB")
             graficar_ber_vs_snr(df_comp)
 
+            st.subheader("Comparación directa: sin protección vs Hamming + CRC")
+
+            st.markdown(
+                """
+La siguiente comparación contrasta la BER final del sistema sin protección contra la BER
+final del sistema con Hamming + CRC, usando los mismos valores de σ. Esta gráfica permite
+observar si la incorporación de redundancia reduce los errores finales respecto a una
+transmisión directa sin mecanismos de detección ni corrección.
+"""
+            )
+
+            df_comparacion_directa = comparar_sin_proteccion_vs_hamming_crc_por_snr(
+                cantidad_bits=int(cantidad_bits_comp),
+                tamano_payload=int(payload_comp),
+                generador=gen_comp,
+                valores_sigma=valores_sigma,
+                semilla=int(semilla_comp),
+            )
+
+            st.dataframe(
+                df_comparacion_directa[
+                    [
+                        "Escenario",
+                        "σ",
+                        "σ²",
+                        "SNR dB",
+                        "BER final datos",
+                        "Errores finales",
+                        "Bits transmitidos por canal",
+                        "Bits de redundancia",
+                        "Factor de expansión",
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            graficar_ber_vs_snr_comparativo(df_comparacion_directa)
+
             st.session_state["g6_comparacion_sigma"] = df_comp
+            st.session_state["g6_comparacion_directa_snr"] = df_comparacion_directa
 
     with tabs[5]:
         st.header("Análisis y dinámica")
