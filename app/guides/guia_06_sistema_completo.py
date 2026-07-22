@@ -2047,7 +2047,53 @@ como pide la observación del documento.
                 semilla=int(semilla_comp),
             )
 
-            st.subheader("Tabla del sistema Hamming + CRC")
+            df_comparacion_directa = comparar_sin_proteccion_vs_hamming_crc_por_snr(
+                cantidad_bits=int(cantidad_bits_comp),
+                tamano_payload=int(payload_comp),
+                generador=gen_comp,
+                valores_sigma=valores_sigma,
+                semilla=int(semilla_comp),
+            )
+
+            st.subheader("Comparación directa: BER final vs SNR dB")
+
+            st.markdown(
+                """
+Esta es la gráfica que atiende directamente la observación: compara la BER final del
+sistema sin protección contra la BER final del sistema con Hamming + CRC, usando los
+mismos valores de σ y representando el resultado en función de la SNR dB.
+"""
+            )
+
+            st.dataframe(
+                df_comparacion_directa[
+                    [
+                        "Escenario",
+                        "σ",
+                        "σ²",
+                        "SNR dB",
+                        "BER final datos",
+                        "Errores finales",
+                        "Bits transmitidos por canal",
+                        "Bits de redundancia",
+                        "Factor de expansión",
+                    ]
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            graficar_ber_vs_snr_comparativo(df_comparacion_directa)
+
+            st.subheader("Análisis adicional del sistema Hamming + CRC")
+
+            st.markdown(
+                """
+Las siguientes gráficas muestran únicamente el comportamiento interno del sistema
+Hamming + CRC frente a σ y SNR dB. Se dejan como apoyo, pero la comparación principal
+solicitada es la gráfica anterior.
+"""
+            )
 
             st.dataframe(
                 df_comp[
@@ -2073,45 +2119,6 @@ como pide la observación del documento.
 
             st.subheader("Sistema Hamming + CRC: BER final vs SNR dB")
             graficar_ber_vs_snr(df_comp)
-
-            st.subheader("Comparación directa: sin protección vs Hamming + CRC")
-
-            st.markdown(
-                """
-La siguiente comparación contrasta la BER final del sistema sin protección contra la BER
-final del sistema con Hamming + CRC, usando los mismos valores de σ. Esta gráfica permite
-observar si la incorporación de redundancia reduce los errores finales respecto a una
-transmisión directa sin mecanismos de detección ni corrección.
-"""
-            )
-
-            df_comparacion_directa = comparar_sin_proteccion_vs_hamming_crc_por_snr(
-                cantidad_bits=int(cantidad_bits_comp),
-                tamano_payload=int(payload_comp),
-                generador=gen_comp,
-                valores_sigma=valores_sigma,
-                semilla=int(semilla_comp),
-            )
-
-            st.dataframe(
-                df_comparacion_directa[
-                    [
-                        "Escenario",
-                        "σ",
-                        "σ²",
-                        "SNR dB",
-                        "BER final datos",
-                        "Errores finales",
-                        "Bits transmitidos por canal",
-                        "Bits de redundancia",
-                        "Factor de expansión",
-                    ]
-                ],
-                use_container_width=True,
-                hide_index=True,
-            )
-
-            graficar_ber_vs_snr_comparativo(df_comparacion_directa)
 
             st.session_state["g6_comparacion_sigma"] = df_comp
             st.session_state["g6_comparacion_directa_snr"] = df_comparacion_directa
