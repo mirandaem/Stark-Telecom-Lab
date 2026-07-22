@@ -539,19 +539,37 @@ def graficar_ber_vs_snr(df: pd.DataFrame) -> None:
             f"Nota: las BER simuladas iguales a 0 se grafican con un piso visual de {piso:.2e} "
             "para poder mostrarlas en escala logarítmica. La tabla conserva el valor real."
         )
-    st.info(
-        """
-**Interpretación de la diferencia entre BER teórica y BER simulada**
+        st.info(
+        f"""
+**Explicación de la discrepancia entre la BER teórica y la BER simulada**
 
-La diferencia entre la BER teórica y la BER simulada aparece principalmente en valores altos de SNR. La curva teórica representa una probabilidad ideal de error para BPSK en un canal AWGN, mientras que la simulación cuenta errores sobre una cantidad finita de bits.
+La diferencia entre la BER teórica y la BER simulada se observa principalmente para valores altos
+de SNR, especialmente a partir de aproximadamente 10 dB. En esa región, la probabilidad teórica
+de error para BPSK en un canal AWGN puede volverse muy pequeña, incluso menor que la capacidad
+de observación de la simulación.
 
-Si no se observan errores durante la simulación, no significa que la BER sea exactamente cero. Experimentalmente se interpreta como:
+La curva teórica representa una probabilidad ideal calculada a partir del modelo matemático de
+BPSK sobre AWGN. En cambio, la BER simulada se calcula contando errores sobre una cantidad finita
+de bits transmitidos. Por esta razón, si se transmiten pocos bits, puede ocurrir que no aparezcan
+errores aunque la probabilidad teórica de error no sea exactamente cero.
 
-BER < 1/N
+En esta simulación se están evaluando aproximadamente **{int(df["Bits evaluados"].max())} bits**.
+Por tanto, el menor valor de BER observable con esta cantidad de bits es aproximadamente:
 
-donde N representa la cantidad de bits evaluados.
+**BER ≈ 1/N = {1 / int(df["Bits evaluados"].max()):.2e}**
 
-Para acercarse más a la curva teórica en valores altos de SNR, sería necesario transmitir una cantidad mucho mayor de bits, lo cual aumentaría el tiempo de ejecución de la simulación.
+Si no se observan errores, el resultado no debe interpretarse como BER = 0, sino como:
+
+**BER < 1/N**
+
+Esto explica por qué la curva simulada puede quedar visualmente limitada mientras la curva teórica
+continúa descendiendo en valores altos de SNR. Para representar de forma más cercana valores de
+BER menores que 10⁻⁶, sería necesario transmitir más de 10⁶ bits, y para obtener una estimación
+más estable se requeriría incluso una cantidad mayor. Esto aumentaría el tiempo de ejecución y
+reduciría la interactividad de la plataforma.
+
+Por tanto, la discrepancia no representa necesariamente un error en el código, sino una limitación
+estadística propia de estimar BER mediante simulación con una cantidad finita de bits.
 """
     )
 
