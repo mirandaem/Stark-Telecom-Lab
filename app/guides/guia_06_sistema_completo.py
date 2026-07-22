@@ -1469,7 +1469,118 @@ def graficar_ber_vs_snr_comparativo(df: pd.DataFrame) -> None:
         "como límite experimental BER < 1/N para poder representarlo en escala logarítmica."
     )
 
+def mostrar_interpretacion_comparativa_snr(df: pd.DataFrame) -> None:
+    """
+    Muestra una interpretación académica de la comparación BER vs SNR
+    entre el sistema sin protección y el sistema Hamming + CRC.
+    """
+    df_interp = df.copy()
 
+    df_interp["BER final datos"] = pd.to_numeric(
+        df_interp["BER final datos"],
+        errors="coerce",
+    )
+
+    df_interp["SNR dB"] = pd.to_numeric(
+        df_interp["SNR dB"],
+        errors="coerce",
+    )
+
+    df_interp = df_interp.dropna(
+        subset=["Escenario", "SNR dB", "BER final datos"]
+    )
+
+    df_sin = df_interp[df_interp["Escenario"] == "Sin protección"]
+    df_prot = df_interp[df_interp["Escenario"] == "Hamming + CRC"]
+
+    if df_sin.empty or df_prot.empty:
+        st.info("No hay suficientes datos para generar una interpretación comparativa.")
+        return
+
+    promedio_sin = df_sin["BER final datos"].mean()
+    promedio_prot = df_prot["BER final datos"].mean()
+
+    puntos_comparables = df_sin.merge(
+        df_prot,
+        on="SNR dB",
+        suffixes=("_sin", "_prot"),
+    )
+
+    if not puntos_comparables.empty:
+        puntos_mejora = (
+            puntos_comparables["BER final datos_prot"]
+            < puntos_comparables["BER final datos_sin"]
+        ).sum()
+
+        total_puntos = len(puntos_comparables)
+    else:
+        puntos_mejora = 0
+        total_puntos = 0
+
+    st.subheader("Interpretación de la comparación")
+
+    st.markdown(
+        """
+La gráfica anterior compara la BER final del sistema sin protección contra la BER final
+del sistema con Hamming + CRC para distintos valores de SNR. Esta comparación permite
+observar el aporte de los mecanismos de detección y corrección de errores sobre la
+información recuperada al final del receptor.
+"""
+    )
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.metric(
+            "BER promedio sin protección",
+            f"{promedio_sin:.3e}",
+        )
+
+    with col2:
+        st.metric(
+            "BER promedio Hamming + CRC",
+            f"{promedio_prot:.3e}",
+        )
+
+    with col3:
+        if total_puntos > 0:
+            st.metric(
+                "Puntos donde mejora",
+                f"{puntos_mejora}/{total_puntos}",
+            )
+        else:
+            st.metric(
+                "Puntos donde mejora",
+                "No comparable",
+            )
+
+    st.markdown(
+        """
+Si la curva de Hamming + CRC se ubica por debajo de la curva del sistema sin protección,
+significa que la redundancia agregada redujo la cantidad de errores finales. Esto ocurre
+porque Hamming puede corregir errores simples antes de recuperar los datos, mientras que
+CRC permite verificar si todavía existen errores remanentes en la trama recibida.
+
+También se observa que, al aumentar la SNR, la BER tiende a disminuir. Esto es coherente
+con el modelo AWGN, ya que una mayor SNR indica que la señal tiene mayor potencia relativa
+frente al ruido. Por tanto, el receptor puede distinguir con mayor facilidad los símbolos
+transmitidos.
+
+Cuando aparecen puntos marcados como cero errores observados, el resultado no debe
+interpretarse como una probabilidad de error exactamente igual a cero. En una simulación
+con una cantidad finita de bits, significa que no se registraron errores dentro de la
+muestra evaluada. Por eso se representa como un límite experimental:
+
+$$
+BER < \\frac{1}{N}
+$$
+
+Finalmente, la mejora obtenida con Hamming + CRC debe analizarse junto con el costo de
+redundancia, ya que el sistema protegido transmite más bits que el sistema sin protección.
+Por ello, la comparación permite estudiar el compromiso entre confiabilidad y eficiencia
+de transmisión.
+"""
+    )
 # ============================================================
 # Interfaz Streamlit
 # ============================================================
@@ -2059,9 +2170,12 @@ La comparación facilita analizar el efecto de la redundancia sobre la confiabil
 
             st.markdown(
                 """
-Esta es la gráfica que atiende directamente la observación: compara la BER final del
-sistema sin protección contra la BER final del sistema con Hamming + CRC, usando los
-mismos valores de σ y representando el resultado en función de la SNR dB.
+La siguiente gráfica compara la BER final del sistema sin protección contra la BER final
+del sistema con Hamming + CRC. Ambos escenarios se evalúan usando los mismos valores de
+desviación estándar del ruido σ, lo que permite analizar el desempeño en función de la SNR dB.
+
+Esta comparación permite observar si la incorporación de redundancia reduce los errores
+finales respecto a una transmisión directa sin mecanismos de detección ni corrección.
 """
             )
 
@@ -2084,6 +2198,7 @@ mismos valores de σ y representando el resultado en función de la SNR dB.
             )
 
             graficar_ber_vs_snr_comparativo(df_comparacion_directa)
+            mostrar_interpretacion_comparativa_snr(df_comparacion_directa)
 
             st.subheader("Análisis adicional del sistema Hamming + CRC")
 
