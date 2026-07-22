@@ -2011,10 +2011,10 @@ Se espera que:
         with col_info:
             st.info(
                 """
-Esta comparación permite revisar el comportamiento del BER frente a σ y SNR dB.
+Esta sección permite comparar el comportamiento de la BER final frente a la SNR para dos escenarios:
+transmisión sin protección y transmisión con Hamming + CRC.
 
-También permite contrastar el sistema sin protección contra el sistema Hamming + CRC,
-como pide la observación del documento.
+La comparación facilita analizar el efecto de la redundancia sobre la confiabilidad del sistema.
 """
             )
 
