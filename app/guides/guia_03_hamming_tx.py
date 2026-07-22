@@ -882,7 +882,31 @@ el síndrome en la Guía 4.
             c2.metric("Bits de paridad p", "3")
             c3.metric("Longitud total n", "7")
             c4.metric("Eficiencia η", f"{calcular_eficiencia(4, 7):.4f}")
+            st.info(
+                f"""
+**¿Qué significa la eficiencia η?**
 
+La eficiencia η indica qué proporción de la palabra codificada corresponde a bits de datos
+originales. En Hamming (7,4), cada bloque se forma con:
+
+- k = 4 bits de datos;
+- p = 3 bits de paridad;
+- n = 7 bits totales.
+
+La eficiencia se calcula como:
+
+**η = k/n = 4/7 = {calcular_eficiencia(4, 7):.4f}**
+
+Esto significa que aproximadamente el 57.14% de la palabra Hamming corresponde a información
+útil, mientras que el 42.86% restante corresponde a bits de paridad. Estos bits de paridad no
+forman parte del mensaje original, pero agregan redundancia para que el receptor pueda detectar
+y corregir errores simples.
+
+La utilidad de η es mostrar el compromiso entre eficiencia y confiabilidad. Hamming transmite
+más bits que el mensaje original, pero esa redundancia permite proteger la información frente
+a errores simples durante la recepción.
+"""
+            )
             st.code(
                 f"Mensaje original: {bits}\n"
                 f"Palabra Hamming:  {resultado['codigo_str']}",
